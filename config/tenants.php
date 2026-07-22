@@ -49,7 +49,7 @@ return [
         'password' => 'K!ngd0m@!t0ne',
     ],
         'localhost' => [
-        'database' => 'ranali',
+        'database' => 'hiruna',
         'username' => 'root',
         'password' => 'root',
     ],

@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { inject, ref } from 'vue';
+import { inject, ref, computed } from 'vue';
 
 const t = inject('t');
 
@@ -29,12 +29,20 @@ function fmt(v) {
     return 'Rs. ' + Number(v || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function saleCost(sale) {
+    return (sale.items ?? []).reduce((s, i) => s + parseFloat(i.cost_price || 0) * parseFloat(i.qty || 0), 0);
+}
+const totalCost = computed(() => props.sales.reduce((s, sale) => s + saleCost(sale), 0));
+
 function planTotalPaid(inst) {
     return (inst.plan?.payments ?? []).reduce((s, p) => s + parseFloat(p.amount_paid || 0), 0);
 }
 function planBalance(inst) {
     return Math.max(0, (inst.plan?.total ?? 0) - planTotalPaid(inst));
 }
+const installmentTotalValue   = computed(() => props.installments.reduce((s, i) => s + parseFloat(i.plan?.total || 0), 0));
+const installmentTotalPaidSum = computed(() => props.installments.reduce((s, i) => s + planTotalPaid(i), 0));
+const installmentBalanceSum   = computed(() => props.installments.reduce((s, i) => s + planBalance(i), 0));
 function fmtTime(d) {
     return d ? new Date(d).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' }) : '';
 }
@@ -153,7 +161,8 @@ async function printReport() {
                             <th class="px-4 py-3 text-left">කැෂියර්</th>
                             <th class="px-4 py-3 text-left">ගෙවීම් ක්‍රමය</th>
                             <th class="px-4 py-3 text-right">වේලාව</th>
-                            <th class="px-4 py-3 text-right">ඉන්වොයිස් මුදල</th>
+                            <th class="px-4 py-3 text-right" style="border-left:2px dashed #E2E8F0;">වියදම</th>
+                            <th class="px-4 py-3 text-right" style="border-left:2px dashed #E2E8F0;">ඉන්වොයිස් මුදල</th>
                             <th class="px-4 py-3 text-right">ලැබූ</th>
                             <th class="px-4 py-3 text-right">ණය</th>
                         </tr>
@@ -175,7 +184,8 @@ async function printReport() {
                                 </span>
                             </td>
                             <td class="px-4 py-2.5 text-right text-slate-400">{{ fmtTime(sale.created_at) }}</td>
-                            <td class="px-4 py-2.5 text-right font-semibold text-slate-700">{{ fmt(sale.total) }}</td>
+                            <td class="px-4 py-2.5 text-right text-slate-500" style="border-left:2px dashed #E2E8F0;">{{ fmt(saleCost(sale)) }}</td>
+                            <td class="px-4 py-2.5 text-right font-semibold text-slate-700" style="border-left:2px dashed #E2E8F0;">{{ fmt(sale.total) }}</td>
                             <td class="px-4 py-2.5 text-right font-semibold text-green-600">{{ fmt(Math.min(Number(sale.paid), Number(sale.total))) }}</td>
                             <td class="px-4 py-2.5 text-right">
                                 <span v-if="sale.balance > 0" class="font-semibold" style="color:#DC2626;">{{ fmt(sale.balance) }}</span>
@@ -186,7 +196,8 @@ async function printReport() {
                     <tfoot v-if="sales.length > 0" class="border-t-2 border-slate-200">
                         <tr class="bg-slate-50 font-semibold">
                             <td colspan="4" class="px-4 py-2.5 text-slate-500 text-xs uppercase">එකතුව</td>
-                            <td class="px-4 py-2.5 text-right text-slate-700">{{ fmt(summary.total_billed) }}</td>
+                            <td class="px-4 py-2.5 text-right text-slate-600 font-semibold" style="border-left:2px dashed #E2E8F0;">{{ fmt(totalCost) }}</td>
+                            <td class="px-4 py-2.5 text-right text-slate-700" style="border-left:2px dashed #E2E8F0;">{{ fmt(summary.total_billed) }}</td>
                             <td class="px-4 py-2.5 text-right text-green-600">{{ fmt(summary.total_revenue) }}</td>
                             <td class="px-4 py-2.5 text-right" style="color:#DC2626;">{{ summary.total_credit > 0 ? fmt(summary.total_credit) : '—' }}</td>
                         </tr>
@@ -216,8 +227,6 @@ async function printReport() {
                             <th class="px-4 py-3 text-center">Installment #</th>
                             <th class="px-4 py-3 text-center">Due Date</th>
                             <th class="px-4 py-3 text-center">Method</th>
-                            <th class="px-4 py-3 text-right">Amount Due</th>
-                            <th class="px-4 py-3 text-right">Amount Paid</th>
                             <th class="px-4 py-3 text-right" style="border-left:2px dashed #FED7AA;">Total Value</th>
                             <th class="px-4 py-3 text-right">Total Paid</th>
                             <th class="px-4 py-3 text-right">Balance Due</th>
@@ -233,15 +242,13 @@ async function printReport() {
                             <td class="px-4 py-2.5 text-center text-slate-500">
                                 {{ inst.installment_no === 0 ? 'Down Pmt' : '#' + inst.installment_no }}
                             </td>
-                            <td class="px-4 py-2.5 text-center text-slate-400 text-xs">{{ inst.due_date }}</td>
+                            <td class="px-4 py-2.5 text-center text-slate-400 text-xs">{{ inst.due_date ? new Date(inst.due_date).toLocaleDateString('en-LK') : '—' }}</td>
                             <td class="px-4 py-2.5 text-center">
                                 <span class="inline-block text-xs px-1.5 py-0.5 rounded capitalize"
                                     style="background:#DCFCE7;color:#15803D;">
                                     {{ inst.payment_method || '—' }}
                                 </span>
                             </td>
-                            <td class="px-4 py-2.5 text-right text-slate-500">{{ fmt(inst.amount_due) }}</td>
-                            <td class="px-4 py-2.5 text-right font-semibold" style="color:#EA580C;">{{ fmt(inst.amount_paid) }}</td>
                             <!-- Plan-level summary -->
                             <td class="px-4 py-2.5 text-right text-slate-700 font-medium" style="border-left:2px dashed #FED7AA;">{{ fmt(inst.plan?.total) }}</td>
                             <td class="px-4 py-2.5 text-right font-medium text-green-700">{{ fmt(planTotalPaid(inst)) }}</td>
@@ -254,9 +261,9 @@ async function printReport() {
                     <tfoot v-if="installments.length > 0" class="border-t-2 border-orange-200">
                         <tr class="bg-orange-50 font-semibold">
                             <td colspan="5" class="px-4 py-2.5 text-xs uppercase" style="color:#EA580C;">එකතුව</td>
-                            <td class="px-4 py-2.5 text-right text-slate-700">{{ fmt(summary.installment_due_total) }}</td>
-                            <td class="px-4 py-2.5 text-right" style="color:#EA580C;">{{ fmt(summary.installment_total) }}</td>
-                            <td colspan="3" class="px-4 py-2.5" style="border-left:2px dashed #FED7AA;"></td>
+                            <td class="px-4 py-2.5 text-right text-slate-700" style="border-left:2px dashed #FED7AA;">{{ fmt(installmentTotalValue) }}</td>
+                            <td class="px-4 py-2.5 text-right" style="color:#16A34A;">{{ fmt(installmentTotalPaidSum) }}</td>
+                            <td class="px-4 py-2.5 text-right" style="color:#DC2626;">{{ fmt(installmentBalanceSum) }}</td>
                         </tr>
                     </tfoot>
                 </table>

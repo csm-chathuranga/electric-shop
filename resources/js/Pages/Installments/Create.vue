@@ -250,6 +250,18 @@ function fmt(v) {
     return 'Rs. ' + Number(v || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+const editingPriceIdx = ref(null);
+const editingPriceVal = ref('');
+function startPriceEdit(idx, item) {
+    editingPriceIdx.value = idx;
+    editingPriceVal.value = String(item.unit_price);
+}
+function commitPriceEdit(item) {
+    item.unit_price = parseFloat(String(editingPriceVal.value).replace(/,/g, '')) || 0;
+    recalc(item);
+    editingPriceIdx.value = null;
+}
+
 // ── Schedule preview ───────────────────────────────────────────────────────────
 const schedule = computed(() => {
     const rows = [];
@@ -647,9 +659,17 @@ function submit() {
                                             @change="e => updateQty(item, e.target.value)"
                                         />
                                     </td>
-                                    <td class="py-2 text-right"
-                                        :class="priceMode === 'wholesale' ? 'text-purple-700' : 'text-gray-700'">
-                                        {{ fmt(item.unit_price) }}
+                                    <td class="py-2 text-right">
+                                        <input
+                                            type="text"
+                                            :value="editingPriceIdx === idx ? editingPriceVal : Number(item.unit_price).toLocaleString('en-LK', { minimumFractionDigits: 0, maximumFractionDigits: 0 })"
+                                            @focus="startPriceEdit(idx, item); $event.target.select()"
+                                            @input="editingPriceVal = $event.target.value"
+                                            @blur="commitPriceEdit(item)"
+                                            @keydown.enter.prevent="$event.target.blur()"
+                                            class="w-28 text-right border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                            :class="priceMode === 'wholesale' ? 'text-purple-700 border-purple-200' : 'text-gray-700 border-gray-200'"
+                                        />
                                     </td>
                                     <td class="py-2 text-right font-semibold text-gray-800">{{ fmt(item.total) }}</td>
                                     <td class="py-2 text-center">

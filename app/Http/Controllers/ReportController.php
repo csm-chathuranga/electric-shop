@@ -25,7 +25,7 @@ class ReportController extends Controller
     {
         $date  = $request->filled('date') ? Carbon::parse($request->date) : Carbon::today();
 
-        $sales = Sale::with(['payments', 'user'])
+        $sales = Sale::with(['payments', 'user', 'items:id,sale_id,cost_price,qty'])
             ->whereDate('created_at', $date)
             ->where('status', '!=', 'held')
             ->orderBy('id')
@@ -50,7 +50,7 @@ class ReportController extends Controller
         // Installment payments collected on this date
         $installments = \App\Models\InstallmentPayment::with(['plan.customer', 'plan.payments'])
             ->whereDate('paid_at', $date)
-            ->where('status', 'paid')
+            ->whereIn('status', ['paid', 'partial'])
             ->get();
 
         $installmentTotal    = $installments->sum('amount_paid');
@@ -145,7 +145,7 @@ class ReportController extends Controller
                 DB::raw('COUNT(*) as installments_count')
             )
             ->whereBetween('paid_at', [$month->copy()->startOfMonth(), $month->copy()->endOfMonth()])
-            ->where('status', 'paid')
+            ->whereIn('status', ['paid', 'partial'])
             ->groupBy(DB::raw('DATE(paid_at)'))
             ->get()
             ->keyBy('date');

@@ -382,7 +382,7 @@ function expiryLabel(days) {
         </div>
 
         <!-- ── QUICK ACTIONS ── -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
             <Link :href="route('sales.create')" class="quick-action-card group" style="--from:#2563EB;--to:#1d4ed8;">
                 <div class="quick-action-glow" style="background:radial-gradient(circle at 70% 30%, rgba(255,255,255,0.18) 0%, transparent 70%);"></div>
                 <div class="quick-action-icon-wrap">
@@ -430,6 +430,24 @@ function expiryLabel(days) {
                     <svg xmlns="http://www.w3.org/2000/svg" class="quick-action-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 </div>
                 <span class="quick-action-label">{{ t('btn.report') }}</span>
+                <div class="quick-action-arrow"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></div>
+            </Link>
+
+            <Link :href="route('reports.day-end')" class="quick-action-card group" style="--from:#0F766E;--to:#0D5C55;">
+                <div class="quick-action-glow" style="background:radial-gradient(circle at 70% 30%, rgba(255,255,255,0.18) 0%, transparent 70%);"></div>
+                <div class="quick-action-icon-wrap">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="quick-action-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                </div>
+                <span class="quick-action-label">දවස් අවසාන වාර්තාව</span>
+                <div class="quick-action-arrow"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></div>
+            </Link>
+
+            <Link :href="route('stock-transfers.create')" class="quick-action-card group" style="--from:#B45309;--to:#92400E;">
+                <div class="quick-action-glow" style="background:radial-gradient(circle at 70% 30%, rgba(255,255,255,0.18) 0%, transparent 70%);"></div>
+                <div class="quick-action-icon-wrap">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="quick-action-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                </div>
+                <span class="quick-action-label">ස්ටොක් මාරු කිරීම</span>
                 <div class="quick-action-arrow"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></div>
             </Link>
         </div>

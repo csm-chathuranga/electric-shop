@@ -273,10 +273,14 @@ function thumbUrl(url) {
             <div class="lg:col-span-2 space-y-4">
 
                 <!-- Summary cards -->
-                <div class="grid grid-cols-3 gap-3">
+                <div class="grid gap-3" :class="plan.interest_amount > 0 ? 'grid-cols-4' : 'grid-cols-3'">
                     <div class="bg-white rounded-xl shadow-sm p-4 text-center" style="border:1px solid #E2E8F0;">
                         <p class="text-xs text-slate-500 mb-1">Total Value</p>
                         <p class="text-lg font-bold text-gray-800">{{ fmt(plan.total) }}</p>
+                    </div>
+                    <div v-if="plan.interest_amount > 0" class="bg-white rounded-xl shadow-sm p-4 text-center" style="border:1px solid #FED7AA;">
+                        <p class="text-xs text-slate-500 mb-1">පොලිය / Interest ({{ plan.interest_rate }}%)</p>
+                        <p class="text-lg font-bold text-orange-600">{{ fmt(plan.interest_amount) }}</p>
                     </div>
                     <div class="bg-white rounded-xl shadow-sm p-4 text-center" style="border:1px solid #E2E8F0;">
                         <p class="text-xs text-slate-500 mb-1">Total Paid</p>
@@ -412,6 +416,14 @@ function thumbUrl(url) {
                             </tr>
                         </tbody>
                         <tfoot class="border-t" style="border-color:#E2E8F0; background:#F8FAFC;">
+                            <tr v-if="plan.interest_amount > 0">
+                                <td colspan="3" class="px-4 py-2 text-right text-slate-500">උප එකතුව / Subtotal</td>
+                                <td class="px-4 py-2 text-right text-slate-600">{{ fmt(plan.total - plan.interest_amount) }}</td>
+                            </tr>
+                            <tr v-if="plan.interest_amount > 0">
+                                <td colspan="3" class="px-4 py-2 text-right text-orange-600">පොලිය / Interest ({{ plan.interest_rate }}%)</td>
+                                <td class="px-4 py-2 text-right font-semibold text-orange-600">+ {{ fmt(plan.interest_amount) }}</td>
+                            </tr>
                             <tr>
                                 <td colspan="3" class="px-4 py-2 text-right font-bold text-gray-700">Total</td>
                                 <td class="px-4 py-2 text-right font-bold text-gray-800">{{ fmt(plan.total) }}</td>

@@ -9,6 +9,7 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleReturnController;
 use App\Http\Controllers\PurchaseController;
+use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\UserController;
@@ -70,6 +71,9 @@ Route::middleware(['auth'])->group(function () {
 
     // Purchases / GRN
     Route::resource('purchases', PurchaseController::class)->only(['index', 'create', 'store', 'show', 'destroy']);
+
+    // Stock Transfers
+    Route::resource('stock-transfers', StockTransferController::class)->only(['index', 'create', 'store', 'show', 'destroy']);
 
     // Reports
     Route::prefix('reports')->name('reports.')->group(function () {

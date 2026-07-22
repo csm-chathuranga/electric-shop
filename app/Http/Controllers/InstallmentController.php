@@ -335,7 +335,7 @@ class InstallmentController extends Controller
 
         $payment->update([
             'amount_paid'    => min($newPaid, $payment->amount_due),
-            'paid_at'        => $newPaid >= $payment->amount_due ? now() : $payment->paid_at,
+            'paid_at'        => now(),
             'payment_method' => $request->payment_method,
             'reference'      => $request->reference,
             'notes'          => $request->notes,
