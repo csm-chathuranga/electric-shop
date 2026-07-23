@@ -9,8 +9,9 @@ const props = defineProps({
     summary:         { type: Object, default: () => ({}) },
     byPaymentMethod: { type: Array,  default: () => [] },
     sales:           { type: Array,  default: () => [] },
-    installments:    { type: Array,  default: () => [] },
-    date:            { type: String, default: '' },
+    installments:     { type: Array,  default: () => [] },
+    creditRepayments: { type: Array,  default: () => [] },
+    date:             { type: String, default: '' },
     settings:        { type: Object, default: () => ({}) },
 });
 
@@ -135,11 +136,16 @@ async function printReport() {
                 <p class="text-2xl font-bold" style="color:#EA580C;">{{ fmt(summary.installment_total) }}</p>
                 <p class="text-xs text-slate-400 mt-0.5">{{ summary.installment_count }} payments</p>
             </div>
-            <!-- Total Daily Income = sales received + installments -->
-            <div class="rounded-xl p-4 shadow-sm text-center" style="border:1px solid #C7D2FE; background:linear-gradient(135deg,#EEF2FF 0%,#fff 100%);">
-                <p class="text-xs text-slate-500 mb-1">දෛනික මුළු ආදායම</p>
-                <p class="text-2xl font-bold" style="color:#3730A3;">{{ fmt(Number(summary.total_revenue) + Number(summary.installment_total)) }}</p>
-                <p class="text-xs mt-0.5" style="color:#6366F1;">විකුණුම් + වාරික</p>
+            <div class="bg-white rounded-xl p-4 shadow-sm text-center" style="border:1px solid #BBF7D0;">
+                <p class="text-xs text-slate-500 mb-1">ණය ගෙවීම්</p>
+                <p class="text-2xl font-bold" style="color:#15803D;">{{ fmt(summary.credit_repayment_total) }}</p>
+                <p class="text-xs text-slate-400 mt-0.5">{{ summary.credit_repayment_count }} payments</p>
+            </div>
+            <!-- Total Daily Income = sales received + installments + credit repayments -->
+            <div class="rounded-xl p-5 shadow-lg text-center col-span-2 md:col-span-1" style="background:linear-gradient(135deg,#3730A3 0%,#4F46E5 60%,#6366F1 100%); border:none;">
+                <p class="text-xs font-semibold uppercase tracking-widest mb-2" style="color:rgba(255,255,255,0.75);">දෛනික මුළු ආදායම</p>
+                <p class="font-black leading-none mb-2" style="color:#fff; font-size:2rem;">{{ fmt(Number(summary.total_revenue) + Number(summary.installment_total) + Number(summary.credit_repayment_total)) }}</p>
+                <p class="text-xs font-medium px-3 py-1 rounded-full inline-block" style="background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.9);">විකුණුම් + වාරික + ණය</p>
             </div>
         </div>
 
@@ -264,6 +270,53 @@ async function printReport() {
                             <td class="px-4 py-2.5 text-right text-slate-700" style="border-left:2px dashed #FED7AA;">{{ fmt(installmentTotalValue) }}</td>
                             <td class="px-4 py-2.5 text-right" style="color:#16A34A;">{{ fmt(installmentTotalPaidSum) }}</td>
                             <td class="px-4 py-2.5 text-right" style="color:#DC2626;">{{ fmt(installmentBalanceSum) }}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+
+        <!-- Credit Repayments (full width) -->
+        <div v-if="creditRepayments.length > 0" class="no-print bg-white rounded-xl shadow-sm mb-6" style="border:1px solid #BBF7D0;">
+            <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:#BBF7D0; background:#F0FDF4;">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="#15803D">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h2 class="font-semibold text-sm" style="color:#15803D;">
+                    ණය ගෙවීම් / Credit Repayments
+                    <span class="font-normal text-xs ml-1" style="color:#16A34A;">({{ creditRepayments.length }})</span>
+                </h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-xs text-slate-500 uppercase bg-green-50 border-b border-green-100">
+                            <th class="px-4 py-3 text-left">පාරිභෝගිකයා</th>
+                            <th class="px-4 py-3 text-left">කැෂියර්</th>
+                            <th class="px-4 py-3 text-left">සටහන</th>
+                            <th class="px-4 py-3 text-right">මුළු ණය</th>
+                            <th class="px-4 py-3 text-right">ගෙවූ මුදල</th>
+                            <th class="px-4 py-3 text-right">ඉතිරි ණය ශේෂය</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-green-50">
+                        <tr v-for="cp in creditRepayments" :key="cp.id" class="hover:bg-green-50">
+                            <td class="px-4 py-2.5 font-medium text-slate-800">{{ cp.customer?.name ?? '—' }}</td>
+                            <td class="px-4 py-2.5 text-slate-500">{{ cp.user?.name ?? '—' }}</td>
+                            <td class="px-4 py-2.5 text-slate-400 text-xs">{{ cp.note ?? '—' }}</td>
+                            <td class="px-4 py-2.5 text-right text-slate-600">{{ fmt(Number(cp.customer?.credit_balance ?? 0) + Number(cp.amount)) }}</td>
+                            <td class="px-4 py-2.5 text-right font-semibold" style="color:#15803D;">{{ fmt(cp.amount) }}</td>
+                            <td class="px-4 py-2.5 text-right font-semibold" :style="cp.customer?.credit_balance > 0 ? 'color:#DC2626;' : 'color:#64748B;'">
+                                {{ cp.customer?.credit_balance > 0 ? fmt(cp.customer.credit_balance) : 'ශූන්‍ය' }}
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot v-if="creditRepayments.length > 0" class="border-t-2 border-green-200">
+                        <tr class="bg-green-50 font-semibold">
+                            <td colspan="3" class="px-4 py-2.5 text-xs uppercase" style="color:#15803D;">එකතුව</td>
+                            <td class="px-4 py-2.5 text-right text-slate-700">{{ fmt(creditRepayments.reduce((s,cp) => s + Number(cp.customer?.credit_balance ?? 0) + Number(cp.amount), 0)) }}</td>
+                            <td class="px-4 py-2.5 text-right" style="color:#15803D;">{{ fmt(summary.credit_repayment_total) }}</td>
+                            <td class="px-4 py-2.5 text-right" style="color:#DC2626;">{{ fmt(creditRepayments.reduce((s,cp) => s + Number(cp.customer?.credit_balance ?? 0), 0)) }}</td>
                         </tr>
                     </tfoot>
                 </table>

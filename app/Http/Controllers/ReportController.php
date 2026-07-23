@@ -56,6 +56,13 @@ class ReportController extends Controller
         $installmentTotal    = $installments->sum('amount_paid');
         $installmentDueTotal = $installments->sum('amount_due');
 
+        // Credit repayments collected on this date
+        $creditRepayments = \App\Models\CreditPayment::with(['customer', 'user'])
+            ->whereDate('created_at', $date)
+            ->get();
+
+        $creditRepaymentTotal = $creditRepayments->sum('amount');
+
         $summary = [
             'total_bills'              => $sales->count(),
             'total_revenue'            => $totalReceived,
@@ -68,15 +75,18 @@ class ReportController extends Controller
             'installment_total'        => $installmentTotal,
             'installment_due_total'    => $installmentDueTotal,
             'installment_count'        => $installments->count(),
+            'credit_repayment_total'   => $creditRepaymentTotal,
+            'credit_repayment_count'   => $creditRepayments->count(),
         ];
 
         return Inertia::render('Reports/DayEnd', [
-            'summary'         => $summary,
-            'byPaymentMethod' => $byPaymentMethod,
-            'sales'           => $sales,
-            'installments'    => $installments,
-            'date'            => $date->toDateString(),
-            'settings'        => $settings,
+            'summary'          => $summary,
+            'byPaymentMethod'  => $byPaymentMethod,
+            'sales'            => $sales,
+            'installments'     => $installments,
+            'creditRepayments' => $creditRepayments,
+            'date'             => $date->toDateString(),
+            'settings'         => $settings,
         ]);
     }
 
