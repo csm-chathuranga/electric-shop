@@ -26,12 +26,29 @@ const payRef      = ref('');
 const payNotes    = ref('');
 const paySubmitting = ref(false);
 
+// Month selector shown inside pay modal when paying DP with no schedule yet
+const paySetupMonths     = ref(3);
+const paySetupGraceDate  = ref('');
+const payPresetMonths    = [2, 3, 6, 12];
+const showMonthSelector  = computed(() =>
+    payModal.value?.installment_no === 0 && !hasSchedule.value
+);
+const payEffectiveBalance = computed(() =>
+    Math.max(0, (props.plan.balance || 0) - (showMonthSelector.value ? payExcess.value : 0))
+);
+const payInstallmentAmt  = computed(() => {
+    if (!showMonthSelector.value || paySetupMonths.value < 1 || !props.plan.balance) return 0;
+    return Math.round(payEffectiveBalance.value / paySetupMonths.value * 100) / 100;
+});
+
 function openPay(payment) {
-    payModal.value    = payment;
-    payAmount.value   = payment.amount_due - payment.amount_paid;
-    payMethod.value   = 'cash';
-    payRef.value      = '';
-    payNotes.value    = '';
+    payModal.value       = payment;
+    payAmount.value      = payment.amount_due - payment.amount_paid;
+    payMethod.value      = 'cash';
+    payRef.value         = '';
+    payNotes.value       = '';
+    paySetupMonths.value = 3;
+    paySetupGraceDate.value = '';
 }
 
 const payExcess = computed(() => {
@@ -76,12 +93,17 @@ function closePay() { payModal.value = null; }
 function submitPay() {
     if (paySubmitting.value) return;
     paySubmitting.value = true;
-    router.post(route('installments.pay', { plan: props.plan.id, payment: payModal.value.id }), {
+    const payload = {
         amount_paid:    payAmount.value,
         payment_method: payMethod.value,
         reference:      payRef.value,
         notes:          payNotes.value,
-    }, {
+    };
+    if (showMonthSelector.value && paySetupMonths.value > 0) {
+        payload.installments_count = paySetupMonths.value;
+        payload.grace_settle_date  = paySetupGraceDate.value || null;
+    }
+    router.post(route('installments.pay', { plan: props.plan.id, payment: payModal.value.id }), payload, {
         onSuccess: () => { closePay(); },
         onFinish: () => { paySubmitting.value = false; },
     });
@@ -142,6 +164,35 @@ function uploadDoc() {
         onFinish: () => { docUploading.value = false; },
     });
 }
+
+// ── Setup installments (inline, after DP is paid) ────────────────────────────
+const setupMonths     = ref(3);
+const setupGraceDate  = ref('');
+const settingUp       = ref(false);
+const presetMonths    = [2, 3, 6, 12];
+const hasSchedule     = computed(() => props.plan.installments_count > 0);
+const dpPaid          = computed(() => dpPayment.value?.status === 'paid');
+
+const setupInstallmentAmt = computed(() => {
+    if (setupMonths.value < 1 || !props.plan.balance) return 0;
+    return Math.round(props.plan.balance / setupMonths.value * 100) / 100;
+});
+
+function submitSetup() {
+    if (settingUp.value || setupMonths.value < 1) return;
+    settingUp.value = true;
+    router.post(route('installments.setup-installments', props.plan.id), {
+        installments_count: setupMonths.value,
+        grace_settle_date:  setupGraceDate.value || null,
+    }, {
+        onFinish: () => { settingUp.value = false; },
+    });
+}
+
+// Payments split by type
+const installmentPayments = computed(() =>
+    (props.plan.payments || []).filter(p => p.installment_no > 0)
+);
 
 // ── Delete plan ───────────────────────────────────────────────────────────────
 function deletePlan() {
@@ -337,59 +388,136 @@ function thumbUrl(url) {
                     </button>
                 </div>
 
-                <!-- Payment schedule -->
-                <div class="bg-white rounded-xl shadow-sm overflow-hidden" style="border:1px solid #E2E8F0;">
+                <!-- Payment schedule — hidden while initial payment has a remaining balance -->
+                <div v-if="graceBalance === 0" class="bg-white rounded-xl shadow-sm overflow-hidden" style="border:1px solid #E2E8F0;">
                     <div class="px-4 py-3 border-b" style="border-color:#E2E8F0; background:#F8FAFC;">
                         <p class="text-sm font-semibold text-gray-700">Payment Schedule</p>
                     </div>
                     <div class="divide-y" style="border-color:#F8FAFC;">
-                        <div v-for="payment in plan.payments" :key="payment.id"
-                            class="flex items-center gap-4 px-4 py-3"
-                            :class="{ 'bg-red-50': payment.status === 'overdue' }">
 
-                            <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
-                                :style="payment.installment_no === 0 ? 'background:#2563EB;' : (payment.status === 'paid' ? 'background:#16a34a;' : payment.status === 'overdue' ? 'background:#dc2626;' : 'background:#64748B;')">
-                                {{ payment.installment_no === 0 ? '↓' : payment.installment_no }}
+                        <!-- DP row — always shown -->
+                        <template v-if="dpPayment">
+                            <div class="flex items-center gap-4 px-4 py-3">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
+                                    :style="dpPayment.status === 'paid' ? 'background:#16a34a;' : 'background:#2563EB;'">
+                                    ↓
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm font-semibold text-gray-800">{{ t('inst.down_pmt_label') }}</p>
+                                    <p class="text-xs" :class="isOverdue(dpPayment.due_date) && dpPayment.status !== 'paid' ? 'text-red-500 font-semibold' : 'text-slate-400'">
+                                        Due: {{ fmtDate(dpPayment.due_date) }}
+                                        <span v-if="isOverdue(dpPayment.due_date) && dpPayment.status !== 'paid'" class="ml-1">⚠ Overdue</span>
+                                    </p>
+                                    <template v-if="dpPayment.status !== 'paid'">
+                                        <p v-if="dpPayment.amount_paid > 0" class="text-xs text-green-600">
+                                            {{ t('inst.initial_received') }}: {{ fmt(dpPayment.amount_paid) }}
+                                        </p>
+                                        <p v-if="dpPayment.amount_due - dpPayment.amount_paid > 0" class="text-xs text-orange-600">
+                                            {{ t('inst.grace_balance') }}: {{ fmt(dpPayment.amount_due - dpPayment.amount_paid) }}
+                                        </p>
+                                    </template>
+                                    <p v-else class="text-xs text-green-600">Paid: {{ fmt(dpPayment.amount_paid) }}</p>
+                                    <p v-if="dpPayment.paid_at" class="text-xs text-slate-400">{{ fmtDate(dpPayment.paid_at) }} via {{ dpPayment.payment_method }}</p>
+                                </div>
+                                <div class="text-right flex-shrink-0">
+                                    <p class="text-sm font-bold text-gray-800">{{ fmt(dpPayment.amount_due) }}</p>
+                                    <span class="text-xs font-semibold px-1.5 py-0.5 rounded-full" :class="(paymentStatus[dpPayment.status] || paymentStatus.pending).cls">
+                                        {{ (paymentStatus[dpPayment.status] || paymentStatus.pending).label }}
+                                    </span>
+                                </div>
+                                <button v-if="dpPayment.status !== 'paid'"
+                                    @click="openPay(dpPayment)"
+                                    class="text-xs text-white font-semibold px-3 py-1.5 rounded-lg flex-shrink-0"
+                                    style="background-color:#2563EB;">
+                                    Pay
+                                </button>
+                                <div v-else class="w-14 flex-shrink-0"></div>
                             </div>
+                        </template>
 
-                            <div class="flex-1 min-w-0">
-                                <p class="text-sm font-semibold text-gray-800">
-                                    {{ payment.installment_no === 0 ? t('inst.down_pmt_label') : `${t('nav.installments')} ${payment.installment_no}` }}
-                                </p>
-                                <p class="text-xs" :class="isOverdue(payment.due_date) && payment.status !== 'paid' ? 'text-red-500 font-semibold' : 'text-slate-400'">
-                                    Due: {{ fmtDate(payment.due_date) }}
-                                    <span v-if="isOverdue(payment.due_date) && payment.status !== 'paid'" class="ml-1">⚠ Overdue</span>
-                                </p>
-                                <!-- For down payment: show initial received + grace balance separately -->
-                                <template v-if="payment.installment_no === 0 && payment.status !== 'paid'">
-                                    <p v-if="payment.amount_paid > 0" class="text-xs text-green-600">
-                                        {{ t('inst.initial_received') }}: {{ fmt(payment.amount_paid) }}
+                        <!-- Installment rows — only when schedule exists -->
+                        <template v-if="hasSchedule">
+                            <div v-for="payment in installmentPayments" :key="payment.id"
+                                class="flex items-center gap-4 px-4 py-3"
+                                :class="{ 'bg-red-50': payment.status === 'overdue' }">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
+                                    :style="payment.status === 'paid' ? 'background:#16a34a;' : payment.status === 'overdue' ? 'background:#dc2626;' : 'background:#64748B;'">
+                                    {{ payment.installment_no }}
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm font-semibold text-gray-800">{{ t('nav.installments') }} {{ payment.installment_no }}</p>
+                                    <p class="text-xs" :class="isOverdue(payment.due_date) && payment.status !== 'paid' ? 'text-red-500 font-semibold' : 'text-slate-400'">
+                                        Due: {{ fmtDate(payment.due_date) }}
+                                        <span v-if="isOverdue(payment.due_date) && payment.status !== 'paid'" class="ml-1">⚠ Overdue</span>
                                     </p>
-                                    <p v-if="payment.amount_due - payment.amount_paid > 0" class="text-xs text-orange-600">
-                                        {{ t('inst.grace_balance') }}: {{ fmt(payment.amount_due - payment.amount_paid) }}
-                                    </p>
-                                </template>
-                                <template v-else>
                                     <p v-if="payment.amount_paid > 0" class="text-xs text-green-600">Paid: {{ fmt(payment.amount_paid) }}</p>
-                                </template>
-                                <p v-if="payment.paid_at" class="text-xs text-slate-400">{{ fmtDate(payment.paid_at) }} via {{ payment.payment_method }}</p>
+                                    <p v-if="payment.paid_at" class="text-xs text-slate-400">{{ fmtDate(payment.paid_at) }} via {{ payment.payment_method }}</p>
+                                </div>
+                                <div class="text-right flex-shrink-0">
+                                    <p class="text-sm font-bold text-gray-800">{{ fmt(payment.amount_due) }}</p>
+                                    <span class="text-xs font-semibold px-1.5 py-0.5 rounded-full" :class="(paymentStatus[payment.status] || paymentStatus.pending).cls">
+                                        {{ (paymentStatus[payment.status] || paymentStatus.pending).label }}
+                                    </span>
+                                </div>
+                                <button v-if="payment.status !== 'paid'"
+                                    @click="openPay(payment)"
+                                    class="text-xs text-white font-semibold px-3 py-1.5 rounded-lg flex-shrink-0"
+                                    style="background-color:#2563EB;">
+                                    Pay
+                                </button>
+                                <div v-else class="w-14 flex-shrink-0"></div>
+                            </div>
+                        </template>
+
+                        <!-- No schedule yet: DP paid → show month selector -->
+                        <div v-else-if="dpPaid" class="px-4 py-5">
+                            <p class="text-sm font-semibold text-gray-700 mb-3">වාරික සැලසුම සාදන්න</p>
+
+                            <!-- Balance info -->
+                            <div class="flex items-center justify-between rounded-xl px-4 py-2.5 mb-3 text-sm" style="background:#EFF6FF; border:1px solid #BFDBFE;">
+                                <span class="text-blue-700">ශේෂය (Balance)</span>
+                                <span class="font-bold text-blue-800">{{ fmt(plan.balance) }}</span>
                             </div>
 
-                            <div class="text-right flex-shrink-0">
-                                <p class="text-sm font-bold text-gray-800">{{ fmt(payment.amount_due) }}</p>
-                                <span class="text-xs font-semibold px-1.5 py-0.5 rounded-full" :class="(paymentStatus[payment.status] || paymentStatus.pending).cls">
-                                    {{ (paymentStatus[payment.status] || paymentStatus.pending).label }}
-                                </span>
+                            <!-- Month presets -->
+                            <label class="block text-xs text-slate-500 mb-1.5">මාස ගණන / Months</label>
+                            <div class="flex gap-2 items-center mb-3">
+                                <button v-for="n in presetMonths" :key="n"
+                                    type="button"
+                                    @click="setupMonths = n"
+                                    class="w-11 py-2 rounded-lg text-xs font-bold border transition-colors flex-shrink-0"
+                                    :class="setupMonths === n ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-slate-600 hover:bg-slate-50'"
+                                >{{ n }}m</button>
+                                <div class="flex-1 flex items-center gap-1 rounded-lg px-2 py-2" style="border:1px solid #E2E8F0;">
+                                    <input type="number" v-model.number="setupMonths" min="1" step="1"
+                                        class="w-full text-center text-sm font-bold bg-transparent focus:outline-none text-blue-700" />
+                                    <span class="text-xs text-slate-400 flex-shrink-0">mo</span>
+                                </div>
                             </div>
 
-                            <button v-if="payment.status !== 'paid'"
-                                @click="openPay(payment)"
-                                class="text-xs text-white font-semibold px-3 py-1.5 rounded-lg flex-shrink-0"
-                                style="background-color:#2563EB;">
-                                Pay
+                            <!-- Per installment -->
+                            <div class="flex justify-between text-xs text-slate-500 mb-3 px-1">
+                                <span>මාසික වාරිකය</span>
+                                <span class="font-bold text-gray-700">{{ fmt(setupInstallmentAmt) }}</span>
+                            </div>
+
+                            <button type="button" @click="submitSetup" :disabled="settingUp"
+                                class="w-full py-2.5 rounded-xl text-white text-sm font-bold disabled:opacity-50"
+                                style="background:#2563EB;">
+                                {{ settingUp ? 'Saving…' : 'සැලසුම සාදන්න' }}
                             </button>
-                            <div v-else class="w-14 flex-shrink-0"></div>
                         </div>
+
+                        <!-- No schedule yet: DP not paid → waiting message -->
+                        <div v-else class="px-4 py-5 text-center">
+                            <div class="inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm" style="background:#FFF7ED; border:1px solid #FED7AA;">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span class="text-orange-700">ප්‍රාරම්භ ගෙවීම සම්පූර්ණ කිරීමෙන් පසු වාරික සැලසුම සකසනු ඇත</span>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
@@ -464,15 +592,11 @@ function thumbUrl(url) {
                             <span class="text-slate-500">{{ t('inst.down_payment') }}</span>
                             <span class="font-semibold text-blue-700">{{ fmt(plan.down_payment) }} ({{ plan.down_payment_percent }}%)</span>
                         </div>
-                        <div v-if="plan.dp_grace_days > 0" class="flex justify-between">
-                            <span class="text-slate-500">{{ t('inst.grace_lbl') }}</span>
-                            <span class="text-gray-700">{{ plan.dp_grace_days }} {{ t('inst.grace_days') }}</span>
-                        </div>
                         <div class="flex justify-between">
                             <span class="text-slate-500">{{ t('inst.balance') }}</span>
                             <span class="font-semibold text-orange-600">{{ fmt(plan.balance) }}</span>
                         </div>
-                        <div class="flex justify-between">
+                        <div v-if="plan.installments_count > 0" class="flex justify-between">
                             <span class="text-slate-500">{{ t('nav.installments') }}</span>
                             <span class="text-gray-700">{{ plan.installments_count }} × {{ fmt(plan.installment_amount) }}</span>
                         </div>
@@ -688,6 +812,12 @@ function thumbUrl(url) {
                         <input v-model="payAmount" type="number" min="0.01" step="0.01"
                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
                         <p class="text-xs text-slate-400 mt-0.5">Balance due: {{ fmt(payModal.amount_due - payModal.amount_paid) }}</p>
+                        <!-- Carry-over hint: shown when a previous excess already reduced this installment -->
+                        <div v-if="payModal.amount_paid > 0" class="mt-1.5 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs" style="background:#F0FDF4; border:1px solid #BBF7D0;">
+                            <span class="text-green-700">පෙර ගෙවීමෙන් කප්පාදු:</span>
+                            <span class="font-semibold text-green-800">{{ fmt(payModal.amount_paid) }}</span>
+                            <span class="text-green-600 ml-auto">(මුල් වාරිකය: {{ fmt(payModal.amount_due) }})</span>
+                        </div>
                         <!-- Overpayment hint -->
                         <div v-if="payExcess > 0" class="mt-1.5 flex items-start gap-1.5 rounded-lg px-2.5 py-2 text-xs" style="background:#EFF6FF; border:1px solid #BFDBFE;">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -716,6 +846,41 @@ function thumbUrl(url) {
                     <div>
                         <label class="block text-xs text-slate-500 mb-1">Notes (optional)</label>
                         <textarea v-model="payNotes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"></textarea>
+                    </div>
+
+                    <!-- Month selector — shown when paying DP with no schedule yet -->
+                    <div v-if="showMonthSelector" class="rounded-xl p-3 space-y-2.5" style="background:#F0F9FF; border:1px solid #BAE6FD;">
+                        <p class="text-xs font-bold text-cyan-800">වාරික සැලසුම සකසන්න / Setup Installment Plan</p>
+
+                        <!-- Balance info -->
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500">ශේෂය (Balance)</span>
+                            <span class="font-bold text-gray-800">{{ fmt(payEffectiveBalance) }}</span>
+                        </div>
+                        <div v-if="payExcess > 0" class="flex justify-between text-xs">
+                            <span class="text-green-600">අතිරික්ත ගෙවීම් කප්පාදු</span>
+                            <span class="text-green-700 font-semibold">- {{ fmt(payExcess) }}</span>
+                        </div>
+
+                        <!-- Month presets -->
+                        <div class="flex gap-1.5 items-center">
+                            <button v-for="n in payPresetMonths" :key="n" type="button"
+                                @click="paySetupMonths = n"
+                                class="w-10 py-1.5 rounded-lg text-xs font-bold border transition-colors flex-shrink-0"
+                                :class="paySetupMonths === n ? 'bg-cyan-600 text-white border-cyan-600' : 'border-gray-200 text-slate-600 hover:bg-slate-50'"
+                            >{{ n }}m</button>
+                            <div class="flex-1 flex items-center gap-1 rounded-lg px-2 py-1.5" style="border:1px solid #E2E8F0; background:#fff;">
+                                <input type="number" v-model.number="paySetupMonths" min="1" step="1"
+                                    class="w-full text-center text-xs font-bold bg-transparent focus:outline-none text-cyan-700" />
+                                <span class="text-xs text-slate-400 flex-shrink-0">mo</span>
+                            </div>
+                        </div>
+
+                        <!-- Per installment -->
+                        <div class="flex justify-between text-xs px-0.5">
+                            <span class="text-slate-500">මාසික වාරිකය</span>
+                            <span class="font-bold text-cyan-800">{{ fmt(payInstallmentAmt) }}</span>
+                        </div>
                     </div>
                 </div>
 

@@ -425,6 +425,49 @@ class ReportController extends Controller
     }
 
     /**
+     * Daily Profit Report — shows margin (revenue - cost) per sale and per installment plan.
+     */
+    public function dailyProfit(Request $request)
+    {
+        $date = $request->filled('date') ? Carbon::parse($request->date) : Carbon::today();
+
+        $sales = Sale::with(['payments', 'user', 'items:id,sale_id,unit_price,cost_price,qty'])
+            ->whereDate('created_at', $date)
+            ->where('status', '!=', 'held')
+            ->orderBy('id')
+            ->get();
+
+        $totalBilled = $sales->sum('total');
+        $totalCost   = $sales->sum(fn ($s) => collect($s->items)->sum(fn ($i) => $i->cost_price * $i->qty));
+        $salesProfit = $totalBilled - $totalCost;
+
+        $installments = \App\Models\InstallmentPayment::with(['plan.customer', 'plan.payments', 'plan.items'])
+            ->whereDate('paid_at', $date)
+            ->whereIn('status', ['paid', 'partial'])
+            ->get();
+
+        $creditRepayments = \App\Models\CreditPayment::with(['customer', 'user'])
+            ->whereDate('created_at', $date)
+            ->get();
+
+        $summary = [
+            'total_billed'    => $totalBilled,
+            'total_cost'      => $totalCost,
+            'sales_profit'    => $salesProfit,
+            'installment_count' => $installments->count(),
+            'credit_repayment_total' => $creditRepayments->sum('amount'),
+        ];
+
+        return Inertia::render('Reports/DailyProfit', [
+            'summary'          => $summary,
+            'sales'            => $sales,
+            'installments'     => $installments,
+            'creditRepayments' => $creditRepayments,
+            'date'             => $date->toDateString(),
+        ]);
+    }
+
+    /**
      * Customers with outstanding credit balance.
      */
     public function creditCustomers(Request $request)

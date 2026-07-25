@@ -8,7 +8,7 @@ class InstallmentPayment extends Model
 {
     protected $fillable = [
         'plan_id', 'installment_no', 'due_date',
-        'amount_due', 'amount_paid', 'paid_at',
+        'amount_due', 'amount_paid', 'last_payment_amount', 'paid_at',
         'payment_method', 'reference', 'notes',
         'status', 'collected_by',
     ];

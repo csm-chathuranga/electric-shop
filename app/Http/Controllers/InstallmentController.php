@@ -145,8 +145,8 @@ class InstallmentController extends Controller
             'discount'                 => 'nullable|numeric|min:0',
             'total'                    => 'required|numeric|min:0',
             'down_payment_amount'      => 'nullable|numeric|min:0',
-            'down_payment_percent'     => 'required|integer|min:1|max:100',
-            'installments_count'       => 'required|integer|min:1|max:12',
+            'down_payment_percent'     => 'required|numeric|min:0|max:100',
+            'installments_count'       => 'required|integer|min:0|max:120',
             'interest_rate'            => 'nullable|numeric|min:0|max:100',
             'dp_grace_days'            => 'nullable|integer|min:0|max:365',
             'initial_paid'             => 'nullable|numeric|min:0',
@@ -270,7 +270,7 @@ class InstallmentController extends Controller
                 'collected_by'   => $initialPaid > 0 ? \Illuminate\Support\Facades\Auth::id() : null,
             ]);
 
-            // #1, #2, … = monthly installments from plan_date
+            // #1, #2, … = monthly installments (only if count is set now)
             for ($i = 1; $i <= $count; $i++) {
                 $due = $i === $count
                     ? $balance - ($installmentAmount * ($count - 1))
@@ -291,6 +291,80 @@ class InstallmentController extends Controller
 
         return redirect()->route('installments.show', $plan->id)
             ->with('success', "Installment plan {$plan->plan_no} created.");
+    }
+
+    // Settle remaining initial / down payment amount
+    public function settleInitial(Request $request, InstallmentPlan $plan)
+    {
+        $request->validate([
+            'amount'         => 'required|numeric|min:0.01',
+            'payment_method' => 'required|string|in:cash,card,qr',
+        ]);
+
+        $dp = $plan->payments()->where('installment_no', 0)->firstOrFail();
+
+        if ($dp->status === 'paid') {
+            return back()->withErrors(['error' => 'Initial payment already fully settled.']);
+        }
+
+        $newPaid = round($dp->amount_paid + (float) $request->amount, 2);
+        $newPaid = min($newPaid, $dp->amount_due);
+
+        $dp->update([
+            'amount_paid'    => $newPaid,
+            'paid_at'        => now(),
+            'payment_method' => $request->payment_method,
+            'collected_by'   => Auth::id(),
+            'status'         => $newPaid >= $dp->amount_due ? 'paid' : 'partial',
+        ]);
+
+        return back()->with('success', 'Initial payment settled.');
+    }
+
+    // Create installment schedule for plans saved without months
+    public function setupInstallments(Request $request, InstallmentPlan $plan)
+    {
+        $request->validate([
+            'installments_count' => 'required|integer|min:1|max:120',
+            'grace_settle_date'  => 'nullable|date',
+        ]);
+
+        if ($plan->installments_count > 0) {
+            return back()->withErrors(['error' => 'Installment schedule already exists.']);
+        }
+
+        DB::transaction(function () use ($request, $plan) {
+            $count  = (int) $request->installments_count;
+            $balance = $plan->balance;
+            $installmentAmount = $balance > 0 ? round($balance / $count, 2) : 0;
+
+            // Start date: grace settle date if provided, else plan date
+            $startDate = $request->filled('grace_settle_date')
+                ? Carbon::parse($request->grace_settle_date)
+                : Carbon::parse($plan->plan_date);
+
+            for ($i = 1; $i <= $count; $i++) {
+                $due = $i === $count
+                    ? $balance - ($installmentAmount * ($count - 1))
+                    : $installmentAmount;
+
+                InstallmentPayment::create([
+                    'plan_id'        => $plan->id,
+                    'installment_no' => $i,
+                    'due_date'       => $startDate->copy()->addMonths($i),
+                    'amount_due'     => round($due, 2),
+                    'amount_paid'    => 0,
+                    'status'         => 'pending',
+                ]);
+            }
+
+            $plan->update([
+                'installments_count' => $count,
+                'installment_amount' => $installmentAmount,
+            ]);
+        });
+
+        return back()->with('success', 'Installment schedule created.');
     }
 
     public function show(string $id)
@@ -317,10 +391,12 @@ class InstallmentController extends Controller
     public function pay(Request $request, string $planId, string $paymentId)
     {
         $request->validate([
-            'amount_paid'    => 'required|numeric|min:0.01',
-            'payment_method' => 'required|string|in:cash,card,qr',
-            'reference'      => 'nullable|string|max:100',
-            'notes'          => 'nullable|string',
+            'amount_paid'        => 'required|numeric|min:0.01',
+            'payment_method'     => 'required|string|in:cash,card,qr',
+            'reference'          => 'nullable|string|max:100',
+            'notes'              => 'nullable|string',
+            'installments_count' => 'nullable|integer|min:1|max:120',
+            'grace_settle_date'  => 'nullable|date',
         ]);
 
         $payment = InstallmentPayment::where('plan_id', $planId)->findOrFail($paymentId);
@@ -333,18 +409,28 @@ class InstallmentController extends Controller
         $newPaid    = $payment->amount_paid + $amountPaid;
         $excess     = max(0, $newPaid - $payment->amount_due);
 
+        // Will this DP payment trigger a new installment schedule?
+        // If so, excess reduces the balance rather than carrying to a next row.
+        $willCreateSchedule = $payment->installment_no === 0
+            && $request->filled('installments_count')
+            && $newPaid >= $payment->amount_due;
+
+        // Cash applied to THIS row = what the cashier entered, capped at the row's remaining balance
+        $appliedHere = min($amountPaid, $payment->amount_due - $payment->amount_paid);
+
         $payment->update([
-            'amount_paid'    => min($newPaid, $payment->amount_due),
-            'paid_at'        => now(),
-            'payment_method' => $request->payment_method,
-            'reference'      => $request->reference,
-            'notes'          => $request->notes,
-            'status'         => $newPaid >= $payment->amount_due ? 'paid' : 'partial',
-            'collected_by'   => Auth::id(),
+            'amount_paid'         => min($newPaid, $payment->amount_due),
+            'last_payment_amount' => $appliedHere,
+            'paid_at'             => now(),
+            'payment_method'      => $request->payment_method,
+            'reference'           => $request->reference,
+            'notes'               => $request->notes,
+            'status'              => $newPaid >= $payment->amount_due ? 'paid' : 'partial',
+            'collected_by'        => Auth::id(),
         ]);
 
-        // Apply excess to the next unpaid installment
-        if ($excess > 0) {
+        // Apply excess to the next unpaid installment (only when not creating a fresh schedule)
+        if ($excess > 0 && !$willCreateSchedule) {
             $next = InstallmentPayment::where('plan_id', $planId)
                 ->whereIn('status', ['pending', 'partial', 'overdue'])
                 ->where('installment_no', '>', $payment->installment_no)
@@ -352,15 +438,17 @@ class InstallmentController extends Controller
                 ->first();
 
             if ($next) {
-                $nextNewPaid = $next->amount_paid + $excess;
+                $nextNewPaid    = $next->amount_paid + $excess;
+                $carriedOver    = min($excess, $next->amount_due - $next->amount_paid);
                 $next->update([
-                    'amount_paid'    => min($nextNewPaid, $next->amount_due),
-                    'paid_at'        => $nextNewPaid >= $next->amount_due ? now() : $next->paid_at,
-                    'payment_method' => $request->payment_method,
-                    'reference'      => $request->reference,
-                    'notes'          => 'Carry-over from ' . ($payment->installment_no === 0 ? 'down payment' : 'installment ' . $payment->installment_no),
-                    'status'         => $nextNewPaid >= $next->amount_due ? 'paid' : 'partial',
-                    'collected_by'   => Auth::id(),
+                    'amount_paid'         => min($nextNewPaid, $next->amount_due),
+                    'last_payment_amount' => $carriedOver,
+                    'paid_at'             => $nextNewPaid >= $next->amount_due ? now() : $next->paid_at,
+                    'payment_method'      => $request->payment_method,
+                    'reference'           => $request->reference,
+                    'notes'               => 'Carry-over from ' . ($payment->installment_no === 0 ? 'down payment' : 'installment ' . $payment->installment_no),
+                    'status'              => $nextNewPaid >= $next->amount_due ? 'paid' : 'partial',
+                    'collected_by'        => Auth::id(),
                 ]);
             }
         }
@@ -372,8 +460,47 @@ class InstallmentController extends Controller
             $plan->update(['status' => 'completed']);
         }
 
+        // If paying the DP and installment schedule not yet created, create it now
+        if (
+            $payment->installment_no === 0 &&
+            $plan->installments_count === 0 &&
+            $request->filled('installments_count') &&
+            $payment->fresh()->status === 'paid'
+        ) {
+            $count     = (int) $request->installments_count;
+            // Deduct any overpayment from the installment balance so all months are recalculated
+            $balance   = max(0, $plan->balance - $excess);
+            $installmentAmount = $balance > 0 ? round($balance / $count, 2) : 0;
+            $startDate = $request->filled('grace_settle_date')
+                ? Carbon::parse($request->grace_settle_date)
+                : Carbon::parse($plan->plan_date);
+
+            for ($i = 1; $i <= $count; $i++) {
+                $due = $i === $count
+                    ? $balance - ($installmentAmount * ($count - 1))
+                    : $installmentAmount;
+
+                InstallmentPayment::create([
+                    'plan_id'        => $plan->id,
+                    'installment_no' => $i,
+                    'due_date'       => $startDate->copy()->addMonths($i),
+                    'amount_due'     => round($due, 2),
+                    'amount_paid'    => 0,
+                    'status'         => 'pending',
+                ]);
+            }
+
+            $plan->update([
+                'installments_count' => $count,
+                'installment_amount' => $installmentAmount,
+                'balance'            => $balance,
+            ]);
+        }
+
         $msg = 'Payment recorded successfully.';
-        if ($excess > 0) {
+        if ($excess > 0 && $willCreateSchedule) {
+            $msg .= " Excess Rs. " . number_format($excess, 2) . " deducted from installment balance.";
+        } elseif ($excess > 0) {
             $msg .= " Excess Rs. " . number_format($excess, 2) . " applied to next installment.";
         }
 

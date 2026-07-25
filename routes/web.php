@@ -66,6 +66,8 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('installments', InstallmentController::class)->only(['index', 'create', 'store', 'show', 'destroy']);
     Route::post('/installments/{plan}/payments/{payment}/pay', [InstallmentController::class, 'pay'])->name('installments.pay');
     Route::post('/installments/{plan}/settle-all', [InstallmentController::class, 'settleAll'])->name('installments.settle-all');
+    Route::post('/installments/{plan}/settle-initial', [InstallmentController::class, 'settleInitial'])->name('installments.settle-initial');
+    Route::post('/installments/{plan}/setup-installments', [InstallmentController::class, 'setupInstallments'])->name('installments.setup-installments');
     Route::post('/installments/{plan}/documents', [InstallmentController::class, 'uploadDocument'])->name('installments.documents.upload');
     Route::get('/installments/{plan}/documents/{document}', [InstallmentController::class, 'serveDocument'])->name('installments.documents.serve');
 
@@ -87,6 +89,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/credit-customers', [ReportController::class, 'creditCustomers'])->name('credit-customers');
         Route::get('/stock-summary', [ReportController::class, 'stockSummary'])->name('stock-summary');
         Route::get('/revenue', [ReportController::class, 'revenueReport'])->name('revenue');
+        Route::get('/daily-profit', [ReportController::class, 'dailyProfit'])->name('daily-profit');
     });
 
     // Settings (admin only)
