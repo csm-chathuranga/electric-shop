@@ -79,12 +79,13 @@ function cashToday(inst) {
     return parseFloat(inst.last_payment_amount ?? inst.amount_paid ?? 0);
 }
 
-// Proportional values — each payment row earns a share of plan profit proportional to cash received today
+// Proportional profit/margin/interest — each row earns a share proportional to cash received today.
+// Cost is NOT proportional: item cost is a fixed fact about the plan (shown once, full amount).
 function proportional(inst) {
     const total = planTotal(inst);
     const ratio = total > 0 ? cashToday(inst) / total : 0;
     return {
-        cost:     planItemCost(inst)   * ratio,
+        cost:     planItemCost(inst),           // full cost — shown only on _isFirst row
         margin:   planItemMargin(inst) * ratio,
         interest: planInterest(inst)   * ratio,
         profit:   planProfit(inst)     * ratio,
@@ -115,7 +116,7 @@ const uniquePlanRows = computed(() => {
 const instTotalValue   = computed(() => uniquePlanRows.value.reduce((s, i) => s + planTotal(i), 0));
 const instTodayTotal   = computed(() => props.installments.reduce((s, i) => s + cashToday(i), 0));
 const instTotalPaid    = computed(() => uniquePlanRows.value.reduce((s, i) => s + planTotalPaid(i), 0));
-const instTotalCost    = computed(() => props.installments.reduce((s, i) => s + proportional(i).cost, 0));
+const instTotalCost    = computed(() => uniquePlanRows.value.reduce((s, i) => s + planItemCost(i), 0));
 const instTotalMargin  = computed(() => props.installments.reduce((s, i) => s + proportional(i).margin, 0));
 const instTotalInt     = computed(() => props.installments.reduce((s, i) => s + proportional(i).interest, 0));
 const instProfit       = computed(() => props.installments.reduce((s, i) => s + proportional(i).profit, 0));
