@@ -224,9 +224,16 @@ class DashboardController extends Controller
                 'days_until'   => today()->diffInDays($p->due_date),
             ]);
 
+        // ── Credit book outstanding (not cached) ───────────────────
+        $creditCustomers = \App\Models\Customer::where('credit_balance', '>', 0)
+            ->orderByDesc('credit_balance')
+            ->get(['id', 'name', 'phone', 'credit_balance'])
+            ->values();
+
         return Inertia::render('Dashboard', array_merge($data, [
             'overdueInstallments'  => $overdueInstallments,
             'upcomingInstallments' => $upcomingInstallments,
+            'creditCustomers'      => $creditCustomers,
             'filters'              => ['date' => $selectedDate],
             'isToday'              => $isToday,
         ]))->with(['flash' => session('flash')]);

@@ -49,6 +49,7 @@ class ReportController extends Controller
 
         // Installment payments collected on this date
         $installments = \App\Models\InstallmentPayment::with(['plan.customer', 'plan.payments'])
+            ->whereHas('plan')
             ->whereDate('paid_at', $date)
             ->whereIn('status', ['paid', 'partial'])
             ->get();
@@ -425,14 +426,17 @@ class ReportController extends Controller
     }
 
     /**
-     * Daily Profit Report — shows margin (revenue - cost) per sale and per installment plan.
+     * Profit Report — shows margin (revenue - cost) per sale and per installment plan for a date range.
      */
     public function dailyProfit(Request $request)
     {
-        $date = $request->filled('date') ? Carbon::parse($request->date) : Carbon::today();
+        $from = $request->filled('from') ? Carbon::parse($request->from)->startOfDay() : Carbon::today()->startOfDay();
+        $to   = $request->filled('to')   ? Carbon::parse($request->to)->endOfDay()     : Carbon::today()->endOfDay();
+        // Ensure from <= to
+        if ($from->gt($to)) [$from, $to] = [$to, $from];
 
         $sales = Sale::with(['payments', 'user', 'items:id,sale_id,unit_price,cost_price,qty'])
-            ->whereDate('created_at', $date)
+            ->whereBetween('created_at', [$from, $to])
             ->where('status', '!=', 'held')
             ->orderBy('id')
             ->get();
@@ -442,12 +446,13 @@ class ReportController extends Controller
         $salesProfit = $totalBilled - $totalCost;
 
         $installments = \App\Models\InstallmentPayment::with(['plan.customer', 'plan.payments', 'plan.items'])
-            ->whereDate('paid_at', $date)
+            ->whereHas('plan')
+            ->whereBetween('paid_at', [$from, $to])
             ->whereIn('status', ['paid', 'partial'])
             ->get();
 
         $creditRepayments = \App\Models\CreditPayment::with(['customer', 'user'])
-            ->whereDate('created_at', $date)
+            ->whereBetween('created_at', [$from, $to])
             ->get();
 
         $summary = [
@@ -463,7 +468,8 @@ class ReportController extends Controller
             'sales'            => $sales,
             'installments'     => $installments,
             'creditRepayments' => $creditRepayments,
-            'date'             => $date->toDateString(),
+            'from'             => $from->toDateString(),
+            'to'               => $to->toDateString(),
         ]);
     }
 

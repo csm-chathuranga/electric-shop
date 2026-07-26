@@ -148,6 +148,7 @@ class InstallmentController extends Controller
             'down_payment_percent'     => 'required|numeric|min:0|max:100',
             'installments_count'       => 'required|integer|min:0|max:120',
             'interest_rate'            => 'nullable|numeric|min:0|max:100',
+            'interest_amount'          => 'nullable|numeric|min:0',
             'dp_grace_days'            => 'nullable|integer|min:0|max:365',
             'initial_paid'             => 'nullable|numeric|min:0',
             'plan_date'                => 'nullable|date',
@@ -164,23 +165,25 @@ class InstallmentController extends Controller
                 ? Carbon::parse($request->plan_date)
                 : Carbon::today();
 
-            $subtotal         = (float) $request->subtotal;
-            $interestAmount   = round($subtotal * $interestRate / 100, 2);
-            $total            = round($subtotal + $interestAmount - ($request->discount ?? 0), 2);
+            $subtotal         = (int) round((float) $request->subtotal);
+            $interestAmount   = $request->filled('interest_amount')
+                ? (int) round((float) $request->interest_amount)
+                : (int) round($subtotal * $interestRate / 100);
+            $total            = (int) round($subtotal + $interestAmount - ($request->discount ?? 0));
 
             $count = (int) $request->installments_count;
 
             // Use the exact amount if provided by the frontend; otherwise derive from percentage
             if ($request->filled('down_payment_amount')) {
-                $downPayment = round(min((float) $request->down_payment_amount, $total), 2);
+                $downPayment = (int) round(min((float) $request->down_payment_amount, $total));
                 $dpPct       = $total > 0 ? (int) round($downPayment / $total * 100) : (int) $request->down_payment_percent;
             } else {
                 $dpPct       = (int) $request->down_payment_percent;
-                $downPayment = round($total * $dpPct / 100, 2);
+                $downPayment = (int) round($total * $dpPct / 100);
             }
 
-            $balance           = round($total - $downPayment, 2);
-            $installmentAmount = $count > 0 ? round($balance / $count, 2) : 0;
+            $balance           = (int) round($total - $downPayment);
+            $installmentAmount = $count > 0 ? (int) round($balance / $count) : 0;
 
             // Plan number uses plan_date so backdated plans get the correct date prefix
             $dateStr = $planDate->format('Ymd');
@@ -248,7 +251,7 @@ class InstallmentController extends Controller
 
             // Initial payment actually received today (can be less than required down payment)
             $initialPaid = isset($request->initial_paid)
-                ? round(min(max(0, (float) $request->initial_paid), $downPayment), 2)
+                ? (int) round(min(max(0, (float) $request->initial_paid), $downPayment))
                 : $downPayment; // default: full down payment received
 
             $dpStatus = $initialPaid >= $downPayment ? 'paid'
@@ -280,7 +283,7 @@ class InstallmentController extends Controller
                     'plan_id'        => $plan->id,
                     'installment_no' => $i,
                     'due_date'       => $planDate->copy()->addMonths($i),
-                    'amount_due'     => round($due, 2),
+                    'amount_due'     => (int) round($due),
                     'amount_paid'    => 0,
                     'status'         => 'pending',
                 ]);
@@ -307,7 +310,7 @@ class InstallmentController extends Controller
             return back()->withErrors(['error' => 'Initial payment already fully settled.']);
         }
 
-        $newPaid = round($dp->amount_paid + (float) $request->amount, 2);
+        $newPaid = (int) round($dp->amount_paid + (float) $request->amount);
         $newPaid = min($newPaid, $dp->amount_due);
 
         $dp->update([
@@ -336,7 +339,7 @@ class InstallmentController extends Controller
         DB::transaction(function () use ($request, $plan) {
             $count  = (int) $request->installments_count;
             $balance = $plan->balance;
-            $installmentAmount = $balance > 0 ? round($balance / $count, 2) : 0;
+            $installmentAmount = $balance > 0 ? (int) round($balance / $count) : 0;
 
             // Start date: grace settle date if provided, else plan date
             $startDate = $request->filled('grace_settle_date')
@@ -352,7 +355,7 @@ class InstallmentController extends Controller
                     'plan_id'        => $plan->id,
                     'installment_no' => $i,
                     'due_date'       => $startDate->copy()->addMonths($i),
-                    'amount_due'     => round($due, 2),
+                    'amount_due'     => (int) round($due),
                     'amount_paid'    => 0,
                     'status'         => 'pending',
                 ]);
@@ -470,7 +473,7 @@ class InstallmentController extends Controller
             $count     = (int) $request->installments_count;
             // Deduct any overpayment from the installment balance so all months are recalculated
             $balance   = max(0, $plan->balance - $excess);
-            $installmentAmount = $balance > 0 ? round($balance / $count, 2) : 0;
+            $installmentAmount = $balance > 0 ? (int) round($balance / $count) : 0;
             $startDate = $request->filled('grace_settle_date')
                 ? Carbon::parse($request->grace_settle_date)
                 : Carbon::parse($plan->plan_date);
@@ -484,7 +487,7 @@ class InstallmentController extends Controller
                     'plan_id'        => $plan->id,
                     'installment_no' => $i,
                     'due_date'       => $startDate->copy()->addMonths($i),
-                    'amount_due'     => round($due, 2),
+                    'amount_due'     => (int) round($due),
                     'amount_paid'    => 0,
                     'status'         => 'pending',
                 ]);

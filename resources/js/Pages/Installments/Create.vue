@@ -149,7 +149,7 @@ function addToCart(product) {
 }
 
 function recalc(item) {
-    item.total = Math.max(0, item.qty * item.unit_price - Number(item.discount || 0));
+    item.total = Math.round(Math.max(0, item.qty * item.unit_price - Number(item.discount || 0)));
 }
 
 function removeItem(idx) { cart.value.splice(idx, 1); }
@@ -163,11 +163,39 @@ function updateQty(item, val) {
 
 // ── Totals ─────────────────────────────────────────────────────────────────────
 const subtotal       = computed(() => cart.value.reduce((s, i) => s + i.total, 0));
-const interestAmount = computed(() => Math.round(subtotal.value * interestRate.value * 100) / 10000);
+const interestAmount = ref(0);
 const total          = computed(() => subtotal.value + interestAmount.value);
 
+const INTEREST_PRESETS   = [10, 15, 20, 25, 30];
+const pinnedInterestPct  = ref(20);
+
+const computedPct = computed(() => {
+    if (!subtotal.value || !interestAmount.value) return '';
+    return (interestAmount.value / subtotal.value * 100).toFixed(2).replace(/\.?0+$/, '') + '%';
+});
+const activePct = computed(() => pinnedInterestPct.value);
+
+function applyPct(pct) {
+    pinnedInterestPct.value = pct;
+    interestAmount.value = Math.round(subtotal.value * pct / 100);
+}
+
+function onInterestInput(val) {
+    const amt = Math.max(0, Math.round(Number(val) || 0));
+    interestAmount.value = amt;
+    const match = INTEREST_PRESETS.find(p => Math.round(subtotal.value * p / 100) === amt);
+    pinnedInterestPct.value = match ?? null;
+}
+
+// When cart changes, keep amount in sync with pinned %
+watch(subtotal, () => {
+    if (pinnedInterestPct.value) {
+        interestAmount.value = Math.round(subtotal.value * pinnedInterestPct.value / 100);
+    }
+});
+
 // ── Payment (step-based) ────────────────────────────────────────────────────────
-const dpPct           = ref(0);    // Step 1: required down payment %
+const dpPct           = ref(30);   // Step 1: required down payment %
 const dpRequiredAmt   = ref(0);    // Step 1: editable required amount (synced with %)
 const initialPaidAmt  = ref(0);    // Step 2: what customer physically pays today
 const graceSettleDate = ref('');   // Step 3B: date to settle the remaining DP gap
@@ -212,7 +240,7 @@ const graceDaysFromDate = computed(() => {
     return Math.max(0, Math.round((settle - base) / 86400000));
 });
 
-function r2(v) { return Math.round(v * 100) / 100; }
+function r2(v) { return Math.round(v); }
 
 // Price mode helpers
 function effectivePrice(product) {
@@ -237,7 +265,7 @@ const installmentAmt = computed(() => installmentCount.value > 0 && !isFullyPaid
 
 
 function fmt(v) {
-    return 'Rs. ' + Number(v || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return 'Rs. ' + Number(v || 0).toLocaleString('en-LK', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 const editingPriceIdx = ref(null);
@@ -275,7 +303,7 @@ const schedule = computed(() => {
             const amt = isLast
                 ? balance.value - (installmentAmt.value * (installmentCount.value - 1))
                 : installmentAmt.value;
-            rows.push({ type: 'inst', no: i, label: `${t('nav.installments')} ${i}`, due: localDate(d), amount: Math.round(amt * 100) / 100 });
+            rows.push({ type: 'inst', no: i, label: `${t('nav.installments')} ${i}`, due: localDate(d), amount: Math.round(amt) });
         }
     }
     return rows;
@@ -309,6 +337,7 @@ function submit() {
         initial_paid:         initialPaidAmt.value,
         installments_count:   (isFullyPaid.value || graceAmt.value > 0) ? 0 : installmentCount.value,
         interest_rate:        interestRate.value,
+        interest_amount:      interestAmount.value,
         dp_grace_days:        graceSettleDate.value ? graceDaysFromDate.value : 0,
         grace_settle_date:    graceSettleDate.value || null,
         notes:                notes.value,
@@ -699,48 +728,55 @@ function submit() {
             <!-- Right: guided step panel -->
             <div class="space-y-3">
 
-                <!-- Interest rate (always at top — affects plan total shown in steps) -->
-                <div class="bg-white rounded-xl shadow-sm px-4 py-3 flex items-center gap-3" style="border:1px solid #E2E8F0;">
-                    <span class="text-xs font-semibold text-slate-500 flex-shrink-0">{{ t('inst.interest_rate') }}</span>
-                    <div class="flex items-center gap-1.5">
-                        <input
-                            type="number"
-                            v-model.number="interestRate"
-                            min="0" max="100" step="0.5"
-                            class="w-16 border border-gray-300 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-300"
-                        />
-                        <span class="text-xs text-slate-500">%</span>
+                <!-- Interest amount -->
+                <div class="bg-white rounded-xl shadow-sm px-4 py-3" style="border:1px solid #E2E8F0;">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-semibold text-slate-500 flex-shrink-0">{{ t('inst.interest_rate') }}</span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-xs text-slate-500">Rs.</span>
+                            <input
+                                type="number"
+                                :value="interestAmount"
+                                @input="onInterestInput($event.target.value)"
+                                min="0" step="1"
+                                class="w-28 border border-orange-200 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-300"
+                                style="background:#FFF7ED;"
+                            />
+                            <span v-if="computedPct" class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background:#FEF3C7; color:#D97706;">
+                                {{ computedPct }}
+                            </span>
+                        </div>
+                        <span class="text-xs text-slate-400 ml-auto">→ {{ t('inst.total_financed') }}:
+                            <span class="font-bold text-gray-800">{{ fmt(total) }}</span>
+                        </span>
                     </div>
-                    <span class="text-xs text-slate-400">→ {{ t('inst.total_financed') }}:
-                        <span class="font-bold text-gray-800">{{ fmt(total) }}</span>
-                    </span>
+                    <div class="flex gap-1.5 mt-2.5">
+                        <button
+                            v-for="pct in INTEREST_PRESETS" :key="pct"
+                            type="button"
+                            @click="applyPct(pct)"
+                            class="px-3 py-1 rounded-full text-xs font-semibold transition-colors"
+                            :class="activePct === pct
+                                ? 'bg-orange-500 text-white'
+                                : 'bg-orange-50 text-orange-600 hover:bg-orange-100'"
+                        >
+                            {{ pct }}%
+                        </button>
+                    </div>
                 </div>
 
                 <!-- ── STEP 1: Down payment % ───────────────────────────── -->
                 <div class="bg-white rounded-xl shadow-sm p-4" style="border:1px solid #E2E8F0;">
                     <div class="flex items-center gap-2 mb-3">
                         <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style="background:#6366F1;">1</div>
-                        <p class="text-sm font-semibold text-gray-700">පූර්ව ගෙවීම් ප්‍රතිශතය</p>
+                        <p class="text-sm font-semibold text-gray-700">පළමු ගෙවීම් ප්‍රතිශතය</p>
                         <span class="text-xs text-slate-400">Down Payment %</span>
                     </div>
 
-                    <div class="flex items-center gap-2">
-                        <div class="flex-1 flex items-center gap-2 rounded-lg px-3 py-2" style="background:#F5F3FF; border:1px solid #DDD6FE;">
-                            <input
-                                type="number"
-                                :value="dpPct"
-                                min="0" max="100" step="5"
-                                placeholder="0"
-                                class="flex-1 bg-transparent text-lg font-bold text-violet-700 focus:outline-none min-w-0"
-                                @change="e => onDpPctInput(e.target.value)"
-                                @blur="e => onDpPctInput(e.target.value)"
-                            />
-                            <span class="text-sm font-bold text-violet-400">%</span>
-                        </div>
-                        <!-- Quick preset buttons -->
+                    <div class="flex items-center gap-2 flex-wrap">
                         <button v-for="p in [10,20,30,50]" :key="p" type="button"
                             @click="onDpPctInput(p)"
-                            class="px-2 py-1.5 rounded-lg text-xs font-bold border transition-colors"
+                            class="px-4 py-1.5 rounded-lg text-sm font-bold border transition-colors"
                             :class="dpPct === p ? 'bg-violet-600 text-white border-violet-600' : 'border-gray-200 text-slate-500 hover:bg-slate-50'"
                         >{{ p }}%</button>
                     </div>
@@ -901,8 +937,8 @@ function submit() {
                             <span>{{ t('inst.items_subtotal') }}</span>
                             <span class="font-semibold text-gray-800">{{ fmt(subtotal) }}</span>
                         </div>
-                        <div v-if="interestRate > 0" class="flex justify-between text-slate-500">
-                            <span class="text-orange-600">{{ t('inst.interest_label') }} ({{ interestRate }}%)</span>
+                        <div v-if="interestAmount > 0" class="flex justify-between text-slate-500">
+                            <span class="text-orange-600">{{ t('inst.interest_label') }}</span>
                             <span class="font-semibold text-orange-600">+ {{ fmt(interestAmount) }}</span>
                         </div>
                         <div class="flex justify-between border-t pt-1.5 font-bold" style="border-color:#E2E8F0;">

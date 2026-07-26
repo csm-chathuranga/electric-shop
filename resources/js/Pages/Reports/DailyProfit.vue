@@ -10,10 +10,12 @@ const props = defineProps({
     sales:            { type: Array,  default: () => [] },
     installments:     { type: Array,  default: () => [] },
     creditRepayments: { type: Array,  default: () => [] },
-    date:             { type: String, default: '' },
+    from:             { type: String, default: '' },
+    to:               { type: String, default: '' },
 });
 
-const selectedDate = ref(props.date);
+const fromDate = ref(props.from || localDate(new Date()));
+const toDate   = ref(props.to   || localDate(new Date()));
 
 function localDate(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -21,8 +23,34 @@ function localDate(d) {
 const todayStr = localDate(new Date());
 
 function changeDate() {
-    router.get(route('reports.daily-profit'), { date: selectedDate.value }, { preserveScroll: false });
+    router.get(route('reports.daily-profit'), { from: fromDate.value, to: toDate.value }, { preserveScroll: false });
 }
+
+function setLastWeek() {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    fromDate.value = localDate(d);
+    toDate.value = todayStr;
+    changeDate();
+}
+
+function setLastMonth() {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    fromDate.value = localDate(d);
+    toDate.value = todayStr;
+    changeDate();
+}
+
+const isToday     = computed(() => fromDate.value === todayStr && toDate.value === todayStr);
+const isLastWeek  = computed(() => {
+    const d = new Date(); d.setDate(d.getDate() - 7);
+    return fromDate.value === localDate(d) && toDate.value === todayStr;
+});
+const isLastMonth = computed(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 1);
+    return fromDate.value === localDate(d) && toDate.value === todayStr;
+});
 
 function fmt(v) {
     return 'Rs. ' + Number(v || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -79,16 +107,16 @@ function cashToday(inst) {
     return parseFloat(inst.last_payment_amount ?? inst.amount_paid ?? 0);
 }
 
-// Proportional profit/margin/interest — each row earns a share proportional to cash received today.
-// Cost is NOT proportional: item cost is a fixed fact about the plan (shown once, full amount).
+// Cost, margin, interest = full plan values (shown on _isFirst row only).
+// Profit = proportional to today's cash — what was actually earned today.
 function proportional(inst) {
     const total = planTotal(inst);
     const ratio = total > 0 ? cashToday(inst) / total : 0;
     return {
-        cost:     planItemCost(inst),           // full cost — shown only on _isFirst row
-        margin:   planItemMargin(inst) * ratio,
-        interest: planInterest(inst)   * ratio,
-        profit:   planProfit(inst)     * ratio,
+        cost:     planItemCost(inst),            // full cost
+        margin:   planItemMargin(inst),          // full item margin (unit_price - cost_price) × qty
+        interest: planInterest(inst),            // full plan interest
+        profit:   planProfit(inst),              // full profit = margin + interest
     };
 }
 
@@ -117,15 +145,16 @@ const instTotalValue   = computed(() => uniquePlanRows.value.reduce((s, i) => s 
 const instTodayTotal   = computed(() => props.installments.reduce((s, i) => s + cashToday(i), 0));
 const instTotalPaid    = computed(() => uniquePlanRows.value.reduce((s, i) => s + planTotalPaid(i), 0));
 const instTotalCost    = computed(() => uniquePlanRows.value.reduce((s, i) => s + planItemCost(i), 0));
-const instTotalMargin  = computed(() => props.installments.reduce((s, i) => s + proportional(i).margin, 0));
-const instTotalInt     = computed(() => props.installments.reduce((s, i) => s + proportional(i).interest, 0));
-const instProfit       = computed(() => props.installments.reduce((s, i) => s + proportional(i).profit, 0));
+const instTotalMargin  = computed(() => uniquePlanRows.value.reduce((s, i) => s + planItemMargin(i), 0));
+const instTotalInt     = computed(() => uniquePlanRows.value.reduce((s, i) => s + planInterest(i), 0));
+const instProfit       = computed(() => uniquePlanRows.value.reduce((s, i) => s + planProfit(i), 0));
 
-const grandProfit = computed(() => totalProfit.value + instProfit.value); // instProfit is proportional
+const grandProfit   = computed(() => totalProfit.value + instProfit.value);
+const creditTotal   = computed(() => props.creditRepayments.reduce((s, r) => s + parseFloat(r.amount || 0), 0));
 </script>
 
 <template>
-    <Head title="Daily Profit Report" />
+    <Head title="ලාභ වාර්තාව" />
     <AuthenticatedLayout>
         <template #header>
             <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -135,28 +164,53 @@ const grandProfit = computed(() => totalProfit.value + instProfit.value); // ins
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
                     </Link>
-                    <h1 class="text-xl font-bold" style="color:#0F172A;">දෛනික ලාභ වාර්තාව / Daily Profit Report</h1>
+                    <h1 class="text-xl font-bold" style="color:#0F172A;">ලාభ වාර්තාව / Laaba Wartha</h1>
                 </div>
-                <div class="flex items-center gap-2 ml-auto">
-                    <button type="button" @click="selectedDate = todayStr; changeDate()"
+                <div class="flex items-center gap-2 ml-auto flex-wrap">
+                    <button type="button" @click="fromDate = todayStr; toDate = todayStr; changeDate()"
                         class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                        :class="selectedDate === todayStr ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
+                        :class="isToday ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
                         Today
                     </button>
-                    <input
-                        v-model="selectedDate"
-                        type="date"
-                        :max="todayStr"
-                        @change="changeDate"
-                        class="rounded-lg px-3 py-1.5 text-sm outline-none font-medium"
-                        style="border:1px solid #E2E8F0; color:#0F172A;"
-                    />
+                    <button type="button" @click="setLastWeek"
+                        class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                        :class="isLastWeek ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
+                        Last Week
+                    </button>
+                    <button type="button" @click="setLastMonth"
+                        class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                        :class="isLastMonth ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
+                        Last Month
+                    </button>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-xs text-slate-400 font-medium">සිට</span>
+                        <input
+                            v-model="fromDate"
+                            type="date"
+                            :max="toDate"
+                            @change="changeDate"
+                            class="rounded-lg px-3 py-1.5 text-sm outline-none font-medium"
+                            style="border:1px solid #E2E8F0; color:#0F172A;"
+                        />
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-xs text-slate-400 font-medium">දක්වා</span>
+                        <input
+                            v-model="toDate"
+                            type="date"
+                            :min="fromDate"
+                            :max="todayStr"
+                            @change="changeDate"
+                            class="rounded-lg px-3 py-1.5 text-sm outline-none font-medium"
+                            style="border:1px solid #E2E8F0; color:#0F172A;"
+                        />
+                    </div>
                 </div>
             </div>
         </template>
 
         <!-- Summary tiles -->
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
             <!-- Revenue -->
             <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100 text-center">
                 <p class="text-xs text-slate-500 mb-1">මුළු ආදායම</p>
@@ -180,8 +234,14 @@ const grandProfit = computed(() => totalProfit.value + instProfit.value); // ins
                 <p class="text-2xl font-bold" style="color:#EA580C;">{{ fmt(instProfit) }}</p>
                 <p class="text-xs text-slate-400 mt-0.5">{{ installments.length }} plans</p>
             </div>
+            <!-- Credit repayments -->
+            <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100 text-center" style="border-color:#A7F3D0;">
+                <p class="text-xs text-slate-500 mb-1">ණය එකතු කිරීම්</p>
+                <p class="text-2xl font-bold" style="color:#059669;">{{ fmt(creditTotal) }}</p>
+                <p class="text-xs text-slate-400 mt-0.5">{{ creditRepayments.length }} repayments</p>
+            </div>
             <!-- Grand profit (highlighted) -->
-            <div class="rounded-xl p-4 shadow-lg text-center col-span-2 md:col-span-1" style="background:linear-gradient(135deg,#3730A3 0%,#4F46E5 60%,#6366F1 100%);">
+            <div class="rounded-xl p-4 shadow-lg text-center col-span-2 lg:col-span-1" style="background:linear-gradient(135deg,#3730A3 0%,#4F46E5 60%,#6366F1 100%);">
                 <p class="text-xs font-semibold uppercase tracking-widest mb-1" style="color:rgba(255,255,255,0.75);">මුළු ලාභය</p>
                 <p class="font-black leading-none mb-1" style="color:#fff; font-size:1.75rem;">{{ fmt(grandProfit) }}</p>
                 <p class="text-xs px-2 py-0.5 rounded-full inline-block" style="background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.9);">විකුණුම් + වාරික</p>

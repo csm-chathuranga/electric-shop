@@ -28,6 +28,7 @@ const props = defineProps({
     expiringSoon:           { type: Array,  default: () => [] },
     overdueInstallments:    { type: Array,  default: () => [] },
     upcomingInstallments:   { type: Array,  default: () => [] },
+    creditCustomers:        { type: Array,  default: () => [] },
     filters:  { type: Object, default: () => ({}) },
     isToday:  { type: Boolean, default: true },
 });
@@ -433,12 +434,12 @@ function expiryLabel(days) {
                 <div class="quick-action-arrow"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></div>
             </Link>
 
-            <Link :href="route('reports.day-end')" class="quick-action-card group" style="--from:#0F766E;--to:#0D5C55;">
+            <Link :href="route('reports.daily-profit')" class="quick-action-card group" style="--from:#0F766E;--to:#0D5C55;">
                 <div class="quick-action-glow" style="background:radial-gradient(circle at 70% 30%, rgba(255,255,255,0.18) 0%, transparent 70%);"></div>
                 <div class="quick-action-icon-wrap">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="quick-action-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="quick-action-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
-                <span class="quick-action-label">දවස් අවසාන වාර්තාව</span>
+                <span class="quick-action-label">ආදායම් වාර්තාව</span>
                 <div class="quick-action-arrow"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></div>
             </Link>
 
@@ -500,6 +501,35 @@ function expiryLabel(days) {
                         <Link :href="route('installments.show', item.plan_id)" class="text-xs text-amber-600 hover:underline font-semibold flex-shrink-0">View</Link>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- ── CREDIT BOOK OUTSTANDING (non-cashier only) ── -->
+        <div v-if="creditCustomers.length > 0" class="mb-4 bg-white rounded-xl shadow-sm overflow-hidden" style="border:1px solid #BFDBFE;">
+            <div class="flex items-center justify-between px-4 py-3 border-b" style="border-color:#BFDBFE; background:#EFF6FF;">
+                <div class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                    <p class="text-sm font-semibold text-blue-700">ණය පොත — Credit Book <span class="ml-1 text-xs font-normal text-blue-500">({{ creditCustomers.length }} customers)</span></p>
+                </div>
+                <Link :href="route('reports.credit-customers')" class="text-xs font-semibold text-blue-600 hover:underline">සියල්ල බලන්න</Link>
+            </div>
+            <div class="divide-y" style="border-color:#DBEAFE;">
+                <div v-for="c in creditCustomers.slice(0, 8)" :key="c.id" class="flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors">
+                    <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-blue-700">
+                        {{ c.name.charAt(0).toUpperCase() }}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-bold text-gray-800 truncate">{{ c.name }}</p>
+                        <p class="text-xs text-slate-400">{{ c.phone ?? '—' }}</p>
+                    </div>
+                    <p class="text-sm font-bold text-blue-700 flex-shrink-0">Rs. {{ Number(c.credit_balance).toLocaleString('en-LK', { minimumFractionDigits: 2 }) }}</p>
+                </div>
+            </div>
+            <div v-if="creditCustomers.length > 8" class="px-4 py-2 text-xs text-center text-blue-500 border-t" style="border-color:#DBEAFE;">
+                + {{ creditCustomers.length - 8 }} more —
+                <Link :href="route('reports.credit-customers')" class="font-semibold hover:underline">සියල්ල බලන්න</Link>
             </div>
         </div>
 
