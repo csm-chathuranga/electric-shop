@@ -119,6 +119,27 @@ function fmt(v) {
     return 'Rs. ' + Number(v || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function nextDueDays(dateStr) {
+    if (!dateStr) return null;
+    const due = new Date(dateStr + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return Math.round((due - today) / 86400000);
+}
+function nextDueLabel(dateStr) {
+    const d = nextDueDays(dateStr);
+    if (d === null) return '';
+    if (d < 0)  return `${Math.abs(d)}d අකුරු`;
+    if (d === 0) return 'අද';
+    if (d === 1) return 'හෙට';
+    return dateStr.slice(5).replace('-', '/');  // MM/DD
+}
+function nextDueStyle(dateStr) {
+    const d = nextDueDays(dateStr);
+    if (d === null) return '';
+    if (d <= 3) return 'background:#FEE2E2; color:#DC2626;';   // red — urgent
+    return 'background:#F1F5F9; color:#64748B;';               // gray — fine
+}
+
 function parseUtc(d) {
     if (!d) return null;
     // DB::table() returns "YYYY-MM-DD HH:mm:ss" with no timezone — treat as UTC
@@ -523,6 +544,13 @@ function expiryLabel(days) {
                     <div class="flex-1 min-w-0">
                         <p class="text-xs font-bold text-gray-800 truncate">{{ c.name }}</p>
                         <p class="text-xs text-slate-400">{{ c.phone ?? '—' }}</p>
+                    </div>
+                    <!-- Next payment due badge -->
+                    <div v-if="c.next_due" class="flex-shrink-0 text-right mr-2">
+                        <span class="text-xs px-1.5 py-0.5 rounded font-semibold"
+                            :style="nextDueStyle(c.next_due)">
+                            {{ nextDueLabel(c.next_due) }}
+                        </span>
                     </div>
                     <p class="text-sm font-bold text-blue-700 flex-shrink-0">Rs. {{ Number(c.credit_balance).toLocaleString('en-LK', { minimumFractionDigits: 2 }) }}</p>
                 </div>

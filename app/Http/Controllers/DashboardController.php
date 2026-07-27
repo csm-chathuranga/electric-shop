@@ -227,8 +227,25 @@ class DashboardController extends Controller
         // ── Credit book outstanding (not cached) ───────────────────
         $creditCustomers = \App\Models\Customer::where('credit_balance', '>', 0)
             ->orderByDesc('credit_balance')
-            ->get(['id', 'name', 'phone', 'credit_balance'])
-            ->values();
+            ->get(['id', 'name', 'phone', 'credit_balance']);
+
+        // Attach next pending installment due date per customer (single query)
+        $customerIds = $creditCustomers->pluck('id');
+        $nextDues = \App\Models\InstallmentPayment::query()
+            ->select('installment_plans.customer_id', DB::raw('MIN(installment_payments.due_date) as next_due'))
+            ->join('installment_plans', 'installment_payments.plan_id', '=', 'installment_plans.id')
+            ->whereIn('installment_plans.customer_id', $customerIds)
+            ->whereIn('installment_payments.status', ['pending', 'partial', 'overdue'])
+            ->groupBy('installment_plans.customer_id')
+            ->pluck('next_due', 'installment_plans.customer_id');
+
+        $creditCustomers = $creditCustomers->map(fn ($c) => [
+            'id'             => $c->id,
+            'name'           => $c->name,
+            'phone'          => $c->phone,
+            'credit_balance' => $c->credit_balance,
+            'next_due'       => $nextDues->get($c->id),
+        ])->values();
 
         return Inertia::render('Dashboard', array_merge($data, [
             'overdueInstallments'  => $overdueInstallments,
