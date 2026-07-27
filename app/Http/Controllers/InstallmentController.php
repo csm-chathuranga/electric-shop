@@ -446,7 +446,7 @@ class InstallmentController extends Controller
                 $next->update([
                     'amount_paid'         => min($nextNewPaid, $next->amount_due),
                     'last_payment_amount' => $carriedOver,
-                    'paid_at'             => $nextNewPaid >= $next->amount_due ? now() : $next->paid_at,
+                    'paid_at'             => now(),
                     'payment_method'      => $request->payment_method,
                     'reference'           => $request->reference,
                     'notes'               => 'Carry-over from ' . ($payment->installment_no === 0 ? 'down payment' : 'installment ' . $payment->installment_no),

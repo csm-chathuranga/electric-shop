@@ -59,9 +59,9 @@ function n(v) {
     return Number(v || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function pct(profit, revenue) {
-    if (!revenue) return '—';
-    return (profit / revenue * 100).toFixed(1) + '%';
+function pct(profit, cost) {
+    if (!cost) return '—';
+    return (profit / cost * 100).toFixed(1) + '%';
 }
 
 function fmtTime(d) {
@@ -226,7 +226,7 @@ const creditTotal   = computed(() => props.creditRepayments.reduce((s, r) => s +
             <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100 text-center" style="border-color:#BBF7D0;">
                 <p class="text-xs text-slate-500 mb-1">විකුණුම් ලාභය</p>
                 <p class="text-2xl font-bold" style="color:#15803D;">{{ fmt(totalProfit) }}</p>
-                <p class="text-xs text-slate-400 mt-0.5">{{ pct(totalProfit, totalRevenue) }} margin</p>
+                <p class="text-xs text-slate-400 mt-0.5">{{ pct(totalProfit, totalCost) }} markup</p>
             </div>
             <!-- Installment profit -->
             <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100 text-center" style="border-color:#FED7AA;">
@@ -303,7 +303,7 @@ const creditTotal   = computed(() => props.creditRepayments.reduce((s, r) => s +
                                 :style="saleProfit(sale) >= 0 ? 'color:#15803D;' : 'color:#DC2626;'">
                                 {{ n(saleProfit(sale)) }}
                             </td>
-                            <td class="px-4 py-2.5 text-right text-xs text-slate-500">{{ pct(saleProfit(sale), sale.total) }}</td>
+                            <td class="px-4 py-2.5 text-right text-xs text-slate-500">{{ pct(saleProfit(sale), saleCost(sale)) }}</td>
                         </tr>
                     </tbody>
                     <tfoot v-if="sales.length > 0" class="border-t-2 border-slate-200">
@@ -314,7 +314,7 @@ const creditTotal   = computed(() => props.creditRepayments.reduce((s, r) => s +
                             <td class="px-4 py-2.5 text-right" style="color:#DC2626;">{{ totalCredit > 0 ? n(totalCredit) : '—' }}</td>
                             <td class="px-4 py-2.5 text-right text-slate-600" style="border-left:2px dashed #E2E8F0;">{{ n(totalCost) }}</td>
                             <td class="px-4 py-2.5 text-right font-bold" style="border-left:2px dashed #BBF7D0; color:#15803D;">{{ n(totalProfit) }}</td>
-                            <td class="px-4 py-2.5 text-right text-xs text-slate-500">{{ pct(totalProfit, totalRevenue) }}</td>
+                            <td class="px-4 py-2.5 text-right text-xs text-slate-500">{{ pct(totalProfit, totalCost) }}</td>
                         </tr>
                     </tfoot>
                 </table>

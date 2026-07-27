@@ -54,7 +54,8 @@ class ReportController extends Controller
             ->whereIn('status', ['paid', 'partial'])
             ->get();
 
-        $installmentTotal    = $installments->sum('amount_paid');
+        // last_payment_amount = cash collected in this specific event; fall back to amount_paid for older rows
+        $installmentTotal    = $installments->sum(fn ($p) => $p->last_payment_amount ?? $p->amount_paid);
         $installmentDueTotal = $installments->sum('amount_due');
 
         // Credit repayments collected on this date
