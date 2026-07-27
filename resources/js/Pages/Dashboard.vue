@@ -128,16 +128,66 @@ function nextDueDays(dateStr) {
 function nextDueLabel(dateStr) {
     const d = nextDueDays(dateStr);
     if (d === null) return '';
-    if (d < 0)  return `${Math.abs(d)}d අකුරු`;
+    if (d < 0)  return `${Math.abs(d)}d අකිමි`;
     if (d === 0) return 'අද';
     if (d === 1) return 'හෙට';
-    return dateStr.slice(5).replace('-', '/');  // MM/DD
+    return dateStr.slice(5).replace('-', '/');
 }
 function nextDueStyle(dateStr) {
     const d = nextDueDays(dateStr);
     if (d === null) return '';
-    if (d <= 3) return 'background:#FEE2E2; color:#DC2626;';   // red — urgent
-    return 'background:#F1F5F9; color:#64748B;';               // gray — fine
+    if (d <= 3) return 'background:#FEE2E2; color:#DC2626;';
+    return 'background:#F1F5F9; color:#64748B;';
+}
+// Credit book sort
+const creditSort = ref('urgency'); // 'balance' | 'urgency'
+const urgentCount = computed(() => props.creditCustomers.filter(c => {
+    if (c.next_due)      return nextDueDays(c.next_due) <= 3;
+    if (c.credit_since)  return creditSinceDays(c.credit_since) > 30;
+    return false;
+}).length);
+const sortedCreditCustomers = computed(() => {
+    const list = [...props.creditCustomers];
+    if (creditSort.value === 'urgency') {
+        list.sort((a, b) => {
+            const scoreA = urgencyScore(a);
+            const scoreB = urgencyScore(b);
+            return scoreA - scoreB;
+        });
+    }
+    // default: already sorted by balance desc from server
+    return list;
+});
+function urgencyScore(c) {
+    if (c.next_due) {
+        const d = nextDueDays(c.next_due);
+        return d ?? 9999;
+    }
+    if (c.credit_since) {
+        return 1000 - creditSinceDays(c.credit_since);  // older debt = lower score = first
+    }
+    return 9999;
+}
+
+// Credit-since helpers (for pure credit-sale customers with no installment schedule)
+function creditSinceDays(dateStr) {
+    if (!dateStr) return null;
+    const since = new Date(dateStr + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return Math.round((today - since) / 86400000);
+}
+function creditSinceLabel(dateStr) {
+    const d = creditSinceDays(dateStr);
+    if (d === null) return '';
+    if (d === 0) return 'අද';
+    return `${d}d ණය`;
+}
+function creditSinceStyle(dateStr) {
+    const d = creditSinceDays(dateStr);
+    if (d === null) return '';
+    if (d > 30) return 'background:#FEE2E2; color:#DC2626;';
+    if (d > 7)  return 'background:#FEF9C3; color:#A16207;';
+    return 'background:#F1F5F9; color:#64748B;';
 }
 
 function parseUtc(d) {
@@ -534,10 +584,32 @@ function expiryLabel(days) {
                     </svg>
                     <p class="text-sm font-semibold text-blue-700">ණය පොත — Credit Book <span class="ml-1 text-xs font-normal text-blue-500">({{ creditCustomers.length }} customers)</span></p>
                 </div>
-                <Link :href="route('reports.credit-customers')" class="text-xs font-semibold text-blue-600 hover:underline">සියල්ල බලන්න</Link>
+                <div class="flex items-center gap-2">
+                    <div class="flex rounded-lg overflow-hidden border border-blue-200 text-xs">
+                        <button @click="creditSort = 'urgency'"
+                            class="px-2 py-1 font-semibold transition-colors flex items-center gap-1"
+                            :class="creditSort === 'urgency' ? 'bg-blue-600 text-white' : 'bg-white text-blue-500 hover:bg-blue-50'">
+                            ⏰ Urgent
+                            <span v-if="urgentCount > 0" class="text-xs rounded-full px-1.5 font-bold"
+                                :style="creditSort === 'urgency' ? 'background:rgba(255,255,255,0.25);' : 'background:#FEE2E2; color:#DC2626;'">
+                                {{ urgentCount }}
+                            </span>
+                        </button>
+                        <button @click="creditSort = 'balance'"
+                            class="px-2 py-1 font-semibold transition-colors border-l border-blue-200"
+                            :class="creditSort === 'balance' ? 'bg-blue-600 text-white' : 'bg-white text-blue-500 hover:bg-blue-50'">
+                            Rs. Balance
+                        </button>
+                    </div>
+                    <Link :href="route('reports.credit-customers')" class="text-xs font-semibold text-blue-600 hover:underline">සියල්ල බලන්න</Link>
+                </div>
             </div>
             <div class="divide-y" style="border-color:#DBEAFE;">
-                <div v-for="c in creditCustomers.slice(0, 8)" :key="c.id" class="flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors">
+                <div v-for="c in sortedCreditCustomers.slice(0, 8)" :key="c.id"
+                    class="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                    :class="(c.next_due && nextDueDays(c.next_due) <= 3) || (c.credit_since && creditSinceDays(c.credit_since) > 30)
+                        ? 'bg-red-50 hover:bg-red-100'
+                        : 'hover:bg-blue-50'">
                     <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-blue-700">
                         {{ c.name.charAt(0).toUpperCase() }}
                     </div>
@@ -545,12 +617,20 @@ function expiryLabel(days) {
                         <p class="text-xs font-bold text-gray-800 truncate">{{ c.name }}</p>
                         <p class="text-xs text-slate-400">{{ c.phone ?? '—' }}</p>
                     </div>
-                    <!-- Next payment due badge -->
-                    <div v-if="c.next_due" class="flex-shrink-0 text-right mr-2">
-                        <span class="text-xs px-1.5 py-0.5 rounded font-semibold"
-                            :style="nextDueStyle(c.next_due)">
-                            {{ nextDueLabel(c.next_due) }}
-                        </span>
+                    <!-- Next payment due (installment) or credit-since badge -->
+                    <div class="flex-shrink-0 text-right mr-2">
+                        <template v-if="c.next_due">
+                            <span class="text-xs px-1.5 py-0.5 rounded font-semibold"
+                                :style="nextDueStyle(c.next_due)">
+                                {{ nextDueLabel(c.next_due) }}
+                            </span>
+                        </template>
+                        <template v-else-if="c.credit_since">
+                            <span class="text-xs px-1.5 py-0.5 rounded font-semibold"
+                                :style="creditSinceStyle(c.credit_since)">
+                                {{ creditSinceLabel(c.credit_since) }}
+                            </span>
+                        </template>
                     </div>
                     <p class="text-sm font-bold text-blue-700 flex-shrink-0">Rs. {{ Number(c.credit_balance).toLocaleString('en-LK', { minimumFractionDigits: 2 }) }}</p>
                 </div>

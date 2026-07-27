@@ -229,22 +229,33 @@ class DashboardController extends Controller
             ->orderByDesc('credit_balance')
             ->get(['id', 'name', 'phone', 'credit_balance']);
 
-        // Attach next pending installment due date per customer (single query)
         $customerIds = $creditCustomers->pluck('id');
-        $nextDues = \App\Models\InstallmentPayment::query()
-            ->select('installment_plans.customer_id', DB::raw('MIN(installment_payments.due_date) as next_due'))
+
+        // Next pending installment due date per customer (for installment-plan customers)
+        $nextDues = DB::table('installment_payments')
             ->join('installment_plans', 'installment_payments.plan_id', '=', 'installment_plans.id')
             ->whereIn('installment_plans.customer_id', $customerIds)
             ->whereIn('installment_payments.status', ['pending', 'partial', 'overdue'])
             ->groupBy('installment_plans.customer_id')
-            ->pluck('next_due', 'installment_plans.customer_id');
+            ->select(DB::raw('installment_plans.customer_id as cid, MIN(installment_payments.due_date) as next_due'))
+            ->pluck('next_due', 'cid');
+
+        // Oldest outstanding credit sale date (fallback for pure-credit customers)
+        $oldestCredit = DB::table('sales')
+            ->whereIn('customer_id', $customerIds)
+            ->where('balance', '>', 0)
+            ->where('status', '!=', 'held')
+            ->groupBy('customer_id')
+            ->select(DB::raw('customer_id, MIN(DATE(created_at)) as since'))
+            ->pluck('since', 'customer_id');
 
         $creditCustomers = $creditCustomers->map(fn ($c) => [
             'id'             => $c->id,
             'name'           => $c->name,
             'phone'          => $c->phone,
             'credit_balance' => $c->credit_balance,
-            'next_due'       => $nextDues->get($c->id),
+            'next_due'       => isset($nextDues[$c->id])   ? (string) $nextDues[$c->id]   : null,
+            'credit_since'   => isset($oldestCredit[$c->id]) ? (string) $oldestCredit[$c->id] : null,
         ])->values();
 
         return Inertia::render('Dashboard', array_merge($data, [
