@@ -121,16 +121,16 @@ function fmt(v) {
 
 function nextDueDays(dateStr) {
     if (!dateStr) return null;
-    const due = new Date(dateStr + 'T00:00:00');
+    const due = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
     const today = new Date(); today.setHours(0, 0, 0, 0);
     return Math.round((due - today) / 86400000);
 }
 function nextDueLabel(dateStr) {
     const d = nextDueDays(dateStr);
     if (d === null) return '';
-    if (d < 0)  return `${Math.abs(d)}d අකිමි`;
-    if (d === 0) return 'අද';
-    if (d === 1) return 'හෙට';
+    if (d < 0)  return `${Math.abs(d)}d ප්‍රමාද`;
+    if (d === 0) return 'අද ගෙවිය යුතු';
+    if (d === 1) return 'හෙට ගෙවිය යුතු';
     return dateStr.slice(5).replace('-', '/');
 }
 function nextDueStyle(dateStr) {
@@ -142,8 +142,8 @@ function nextDueStyle(dateStr) {
 // Credit book sort
 const creditSort = ref('urgency'); // 'balance' | 'urgency'
 const urgentCount = computed(() => props.creditCustomers.filter(c => {
-    if (c.next_due)      return nextDueDays(c.next_due) <= 3;
-    if (c.credit_since)  return creditSinceDays(c.credit_since) > 30;
+    if (c.next_due)    return nextDueDays(c.next_due) <= 3;
+    if (c.credit_due)  return creditDueDays(c.credit_due) <= 3;
     return false;
 }).length);
 const sortedCreditCustomers = computed(() => {
@@ -159,34 +159,31 @@ const sortedCreditCustomers = computed(() => {
     return list;
 });
 function urgencyScore(c) {
-    if (c.next_due) {
-        const d = nextDueDays(c.next_due);
-        return d ?? 9999;
-    }
-    if (c.credit_since) {
-        return 1000 - creditSinceDays(c.credit_since);  // older debt = lower score = first
-    }
+    if (c.next_due)   return nextDueDays(c.next_due)   ?? 9999;
+    if (c.credit_due) return creditDueDays(c.credit_due) ?? 9999;
     return 9999;
 }
 
-// Credit-since helpers (for pure credit-sale customers with no installment schedule)
-function creditSinceDays(dateStr) {
+// Credit due date helpers (from sales.credit_due_date)
+function creditDueDays(dateStr) {
     if (!dateStr) return null;
-    const since = new Date(dateStr + 'T00:00:00');
+    const due = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    return Math.round((today - since) / 86400000);
+    return Math.round((due - today) / 86400000);
 }
-function creditSinceLabel(dateStr) {
-    const d = creditSinceDays(dateStr);
+function creditDueLabel(dateStr) {
+    const d = creditDueDays(dateStr);
     if (d === null) return '';
-    if (d === 0) return 'අද';
-    return `${d}d ණය`;
+    if (d < 0)  return `${Math.abs(d)}d ප්‍රමාද`;
+    if (d === 0) return 'අද ගෙවිය යුතු';
+    if (d === 1) return 'හෙට ගෙවිය යුතු';
+    return dateStr.slice(5).replace('-', '/');
 }
-function creditSinceStyle(dateStr) {
-    const d = creditSinceDays(dateStr);
+function creditDueStyle(dateStr) {
+    const d = creditDueDays(dateStr);
     if (d === null) return '';
-    if (d > 30) return 'background:#FEE2E2; color:#DC2626;';
-    if (d > 7)  return 'background:#FEF9C3; color:#A16207;';
+    if (d <= 3) return 'background:#FEE2E2; color:#DC2626;';
+    if (d <= 7) return 'background:#FEF9C3; color:#A16207;';
     return 'background:#F1F5F9; color:#64748B;';
 }
 
@@ -607,7 +604,7 @@ function expiryLabel(days) {
             <div class="divide-y" style="border-color:#DBEAFE;">
                 <div v-for="c in sortedCreditCustomers.slice(0, 8)" :key="c.id"
                     class="flex items-center gap-3 px-4 py-2.5 transition-colors"
-                    :class="(c.next_due && nextDueDays(c.next_due) <= 3) || (c.credit_since && creditSinceDays(c.credit_since) > 30)
+                    :class="(c.next_due && nextDueDays(c.next_due) <= 3) || (c.credit_due && creditDueDays(c.credit_due) <= 3)
                         ? 'bg-red-50 hover:bg-red-100'
                         : 'hover:bg-blue-50'">
                     <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-blue-700">
@@ -617,19 +614,19 @@ function expiryLabel(days) {
                         <p class="text-xs font-bold text-gray-800 truncate">{{ c.name }}</p>
                         <p class="text-xs text-slate-400">{{ c.phone ?? '—' }}</p>
                     </div>
-                    <!-- Next payment due (installment) or credit-since badge -->
-                    <div class="flex-shrink-0 text-right mr-2">
+                    <!-- Next payment due badge (installment plan OR credit sale due date) -->
+                    <div v-if="c.next_due || c.credit_due" class="flex-shrink-0 text-right mr-2">
                         <template v-if="c.next_due">
-                            <span class="text-xs px-1.5 py-0.5 rounded font-semibold"
-                                :style="nextDueStyle(c.next_due)">
+                            <span class="text-xs px-1.5 py-0.5 rounded font-semibold" :style="nextDueStyle(c.next_due)">
                                 {{ nextDueLabel(c.next_due) }}
                             </span>
+                            <p class="text-xs text-slate-400 mt-0.5">{{ c.next_due }}</p>
                         </template>
-                        <template v-else-if="c.credit_since">
-                            <span class="text-xs px-1.5 py-0.5 rounded font-semibold"
-                                :style="creditSinceStyle(c.credit_since)">
-                                {{ creditSinceLabel(c.credit_since) }}
+                        <template v-else-if="c.credit_due">
+                            <span class="text-xs px-1.5 py-0.5 rounded font-semibold" :style="creditDueStyle(c.credit_due)">
+                                {{ creditDueLabel(c.credit_due) }}
                             </span>
+                            <p class="text-xs text-slate-400 mt-0.5">{{ c.credit_due }}</p>
                         </template>
                     </div>
                     <p class="text-sm font-bold text-blue-700 flex-shrink-0">Rs. {{ Number(c.credit_balance).toLocaleString('en-LK', { minimumFractionDigits: 2 }) }}</p>

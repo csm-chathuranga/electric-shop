@@ -76,10 +76,17 @@ const quickAmounts = [500, 1000, 2000, 5000, 10000];
 const search = ref('');
 const filtered = computed(() => {
     const q = search.value.trim().toLowerCase();
-    if (!q) return props.customers;
-    return props.customers.filter(c =>
-        c.name?.toLowerCase().includes(q) || c.phone?.includes(q)
-    );
+    const list = q
+        ? props.customers.filter(c => c.name?.toLowerCase().includes(q) || c.phone?.includes(q))
+        : [...props.customers];
+    // Sort by earliest due date ascending; no due date goes to bottom
+    return list.sort((a, b) => {
+        const da = earliestDue(a), db = earliestDue(b);
+        if (da && db) return da < db ? -1 : da > db ? 1 : 0;
+        if (da) return -1;
+        if (db) return  1;
+        return 0;
+    });
 });
 
 // ── Customer-wise full report modal ───────────────────────────────────────────
@@ -93,6 +100,42 @@ function totalPaid(customer) {
 }
 function totalInvoiced(customer) {
     return (customer.sales || []).reduce((s, s2) => s + Number(s2.balance), 0);
+}
+
+// Earliest credit_due_date across all unpaid sales
+function earliestDue(customer) {
+    const dates = (customer.sales || [])
+        .filter(s => s.credit_due_date && Number(s.balance) > 0)
+        .map(s => s.credit_due_date);
+    if (!dates.length) return null;
+    return dates.sort()[0];
+}
+// Most recent credit sale date
+function latestSaleDate(customer) {
+    const dates = (customer.sales || []).map(s => s.created_at).filter(Boolean);
+    if (!dates.length) return null;
+    return dates.sort().reverse()[0];
+}
+function dueDays(dateStr) {
+    if (!dateStr) return null;
+    const due   = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return Math.round((due - today) / 86400000);
+}
+function dueBadgeStyle(dateStr) {
+    const d = dueDays(dateStr);
+    if (d === null) return '';
+    if (d <= 3) return 'background:#FEE2E2; color:#DC2626;';
+    if (d <= 7) return 'background:#FEF9C3; color:#A16207;';
+    return 'background:#F1F5F9; color:#64748B;';
+}
+function dueBadgeLabel(dateStr) {
+    const d = dueDays(dateStr);
+    if (d === null) return '';
+    if (d < 0)   return `${Math.abs(d)}d ප්‍රමාද`;
+    if (d === 0) return 'අද ගෙවිය යුතු';
+    if (d === 1) return 'හෙට ගෙවිය යුතු';
+    return fmtDate(String(dateStr).slice(0, 10));
 }
 </script>
 
@@ -196,6 +239,15 @@ function totalInvoiced(customer) {
                     <div class="flex-1 min-w-0">
                         <p class="font-semibold truncate" style="color:#0F172A;">{{ c.name }}</p>
                         <p v-if="c.phone" class="text-xs" style="color:#64748B;">{{ c.phone }}</p>
+                        <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span v-if="latestSaleDate(c)" class="text-xs" style="color:#94A3B8;">
+                                ණය: {{ fmtDate(latestSaleDate(c)) }}
+                            </span>
+                            <span v-if="earliestDue(c)" class="text-sm px-2.5 py-1 rounded-lg font-bold"
+                                :style="dueBadgeStyle(earliestDue(c))">
+                                {{ dueBadgeLabel(earliestDue(c)) }}
+                            </span>
+                        </div>
                     </div>
                     <div class="text-right flex-shrink-0">
                         <p class="text-lg font-bold" style="color:#DC2626;">{{ fmt(c.credit_balance) }}</p>

@@ -240,22 +240,24 @@ class DashboardController extends Controller
             ->select(DB::raw('installment_plans.customer_id as cid, MIN(installment_payments.due_date) as next_due'))
             ->pluck('next_due', 'cid');
 
-        // Oldest outstanding credit sale date (fallback for pure-credit customers)
-        $oldestCredit = DB::table('sales')
+        // Earliest credit_due_date from unpaid credit sales per customer
+        $creditDueDates = DB::table('sales')
             ->whereIn('customer_id', $customerIds)
             ->where('balance', '>', 0)
+            ->whereNotNull('credit_due_date')
             ->where('status', '!=', 'held')
             ->groupBy('customer_id')
-            ->select(DB::raw('customer_id, MIN(DATE(created_at)) as since'))
-            ->pluck('since', 'customer_id');
+            ->select(DB::raw('customer_id, MIN(credit_due_date) as credit_due'))
+            ->pluck('credit_due', 'customer_id');
 
         $creditCustomers = $creditCustomers->map(fn ($c) => [
             'id'             => $c->id,
             'name'           => $c->name,
             'phone'          => $c->phone,
             'credit_balance' => $c->credit_balance,
-            'next_due'       => isset($nextDues[$c->id])   ? (string) $nextDues[$c->id]   : null,
-            'credit_since'   => isset($oldestCredit[$c->id]) ? (string) $oldestCredit[$c->id] : null,
+            // next_due: from installment plan; credit_due: from credit sales
+            'next_due'       => isset($nextDues[$c->id])      ? (string) $nextDues[$c->id]      : null,
+            'credit_due'     => isset($creditDueDates[$c->id]) ? (string) $creditDueDates[$c->id] : null,
         ])->values();
 
         return Inertia::render('Dashboard', array_merge($data, [
