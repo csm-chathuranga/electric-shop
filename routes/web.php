@@ -63,6 +63,7 @@ Route::middleware(['auth'])->group(function () {
 
     // Installment Plans
     Route::get('/api/customers/{customer}/installments-summary', [InstallmentController::class, 'customerSummary'])->name('installments.customer-summary');
+    Route::get('/api/customers/{customer}/credit-details', [CustomerController::class, 'creditDetails'])->name('customers.credit-details');
     Route::resource('installments', InstallmentController::class)->only(['index', 'create', 'store', 'show', 'destroy']);
     Route::post('/installments/{plan}/payments/{payment}/pay', [InstallmentController::class, 'pay'])->name('installments.pay');
     Route::post('/installments/{plan}/settle-all', [InstallmentController::class, 'settleAll'])->name('installments.settle-all');

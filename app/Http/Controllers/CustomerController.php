@@ -169,6 +169,27 @@ class CustomerController extends Controller
         ])->with(['flash' => session('flash')]);
     }
 
+    public function creditDetails(Customer $customer)
+    {
+        $customer->load([
+            'sales' => fn($q) => $q->where('status', 'completed')
+                ->where('balance', '>', 0)
+                ->orderByDesc('created_at')
+                ->select('id', 'customer_id', 'invoice_no', 'total', 'paid', 'balance', 'credit_due_date', 'created_at'),
+            'creditPayments' => fn($q) => $q->orderByDesc('created_at')
+                ->select('id', 'customer_id', 'amount', 'note', 'created_at'),
+        ]);
+
+        return response()->json([
+            'id'             => $customer->id,
+            'name'           => $customer->name,
+            'phone'          => $customer->phone,
+            'credit_balance' => $customer->credit_balance,
+            'sales'          => $customer->sales,
+            'credit_payments' => $customer->creditPayments,
+        ]);
+    }
+
     /**
      * Settle (reduce) a customer's credit balance.
      */

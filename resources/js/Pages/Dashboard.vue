@@ -34,6 +34,59 @@ const props = defineProps({
 });
 
 const clearForm = useForm({});
+
+// ── Credit book modal ──────────────────────────────────────────────────────────
+const reportCustomer = ref(null);
+const reportLoading  = ref(false);
+
+async function openCreditModal(c) {
+    reportLoading.value = true;
+    reportCustomer.value = { ...c, sales: null, credit_payments: null };
+    try {
+        const res  = await fetch(route('customers.credit-details', c.id));
+        const data = await res.json();
+        reportCustomer.value = data;
+    } finally {
+        reportLoading.value = false;
+    }
+}
+
+function totalPaid(customer) {
+    return (customer.credit_payments || []).reduce((s, p) => s + Number(p.amount), 0);
+}
+function totalInvoiced(customer) {
+    return (customer.sales || []).reduce((s, s2) => s + Number(s2.balance), 0);
+}
+function fmtDate(d) {
+    if (!d) return '';
+    return new Date(d).toLocaleDateString('si-LK', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+function fmtDateTime(d) {
+    if (!d) return '';
+    const dt = new Date(d);
+    return dt.toLocaleDateString('si-LK', { year: 'numeric', month: 'short', day: 'numeric' })
+        + ' ' + dt.toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ── Settle from modal ──────────────────────────────────────────────────────────
+const settleModal    = ref(false);
+const settleCustomer = ref(null);
+const settleForm     = useForm({ amount: '', note: '' });
+const quickAmounts   = [500, 1000, 2000, 5000, 10000];
+
+function openSettle(customer) {
+    settleCustomer.value = customer;
+    settleForm.amount = '';
+    settleForm.note   = '';
+    settleModal.value = true;
+    reportCustomer.value = null;
+}
+function submitSettle() {
+    settleForm.post(route('customers.settle-credit', settleCustomer.value.id), {
+        preserveScroll: true,
+        onSuccess: () => { settleForm.reset(); settleModal.value = false; router.reload(); },
+    });
+}
 function clearCache() {
     clearForm.post(route('dashboard.clear-cache'), {
         onSuccess: () => router.reload(),
@@ -602,8 +655,8 @@ function expiryLabel(days) {
                 </div>
             </div>
             <div class="divide-y" style="border-color:#DBEAFE;">
-                <Link v-for="c in sortedCreditCustomers.slice(0, 8)" :key="c.id"
-                    :href="route('customers.show', c.id)"
+                <div v-for="c in sortedCreditCustomers.slice(0, 8)" :key="c.id"
+                    @click="openCreditModal(c)"
                     class="flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer"
                     :class="(c.next_due && nextDueDays(c.next_due) <= 3) || (c.credit_due && creditDueDays(c.credit_due) <= 3)
                         ? 'bg-red-50 hover:bg-red-100'
@@ -631,7 +684,7 @@ function expiryLabel(days) {
                         </template>
                     </div>
                     <p class="text-sm font-bold text-blue-700 flex-shrink-0">Rs. {{ Number(c.credit_balance).toLocaleString('en-LK', { minimumFractionDigits: 2 }) }}</p>
-                </Link>
+                </div>
             </div>
             <div v-if="creditCustomers.length > 8" class="px-4 py-2 text-xs text-center text-blue-500 border-t" style="border-color:#DBEAFE;">
                 + {{ creditCustomers.length - 8 }} more —
@@ -738,6 +791,164 @@ function expiryLabel(days) {
                 </div>
             </div>
         </div>
+
+        <!-- ── Credit Customer Modal ─────────────────────────────────────────── -->
+        <Teleport to="body">
+            <div v-if="reportCustomer" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 overflow-y-auto">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-4">
+                    <!-- Header -->
+                    <div class="flex items-center gap-3 px-6 py-4" style="border-bottom:1px solid #E2E8F0;">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background:#2563EB;">
+                            {{ reportCustomer.name?.charAt(0)?.toUpperCase() }}
+                        </div>
+                        <div class="flex-1">
+                            <h2 class="text-lg font-bold" style="color:#0F172A;">{{ reportCustomer.name }}</h2>
+                            <p v-if="reportCustomer.phone" class="text-xs" style="color:#64748B;">{{ reportCustomer.phone }}</p>
+                        </div>
+                        <button type="button" @click="reportCustomer = null" class="p-2 rounded-lg hover:bg-slate-100" style="color:#64748B;">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <!-- Summary -->
+                    <div class="grid grid-cols-3 gap-0" style="border-bottom:1px solid #E2E8F0;">
+                        <div class="px-6 py-4 text-center" style="border-right:1px solid #E2E8F0;">
+                            <p class="text-xs text-slate-500 mb-1">ණය යෙදිය</p>
+                            <p class="text-xl font-bold" style="color:#DC2626;">{{ fmt(reportCustomer.credit_balance) }}</p>
+                        </div>
+                        <div class="px-6 py-4 text-center" style="border-right:1px solid #E2E8F0;">
+                            <p class="text-xs text-slate-500 mb-1">ඉන්වොයිස් යෙදිය</p>
+                            <p class="text-xl font-bold" style="color:#7C3AED;">{{ fmt(totalInvoiced(reportCustomer)) }}</p>
+                        </div>
+                        <div class="px-6 py-4 text-center">
+                            <p class="text-xs text-slate-500 mb-1">මුල් ගෙවූ</p>
+                            <p class="text-xl font-bold" style="color:#16A34A;">{{ fmt(totalPaid(reportCustomer)) }}</p>
+                        </div>
+                    </div>
+                    <!-- Body -->
+                    <div v-if="reportLoading" class="p-10 text-center text-slate-400 text-sm">Loading…</div>
+                    <div v-else class="p-6 space-y-5 max-h-[55vh] overflow-y-auto">
+                        <!-- Credit invoices -->
+                        <div>
+                            <h3 class="text-sm font-bold mb-2" style="color:#0F172A;">ණය ඉන්වොයිස්</h3>
+                            <div v-if="!reportCustomer.sales?.length" class="text-xs text-slate-400 py-2">ණය ඉන්වොයිස් නොමැත</div>
+                            <table v-else class="w-full text-xs rounded-xl overflow-hidden" style="border:1px solid #E2E8F0;">
+                                <thead>
+                                    <tr style="background:#F8FAFC;">
+                                        <th class="px-3 py-2 text-left" style="color:#64748B;">ඉන්වොයිස්</th>
+                                        <th class="px-3 py-2 text-left" style="color:#64748B;">දිනය</th>
+                                        <th class="px-3 py-2 text-left" style="color:#DC2626;">ගෙවීම් දිනය</th>
+                                        <th class="px-3 py-2 text-right" style="color:#64748B;">මුල්</th>
+                                        <th class="px-3 py-2 text-right" style="color:#64748B;">ගෙවූ</th>
+                                        <th class="px-3 py-2 text-right" style="color:#DC2626;">යෙදිය</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="sale in reportCustomer.sales" :key="sale.id" style="border-top:1px solid #F1F5F9;">
+                                        <td class="px-3 py-2 font-mono font-semibold">
+                                            <Link :href="route('sales.show', sale.id)" class="hover:underline" style="color:#2563EB;" @click.stop>{{ sale.invoice_no }}</Link>
+                                        </td>
+                                        <td class="px-3 py-2" style="color:#64748B;">{{ fmtDate(sale.created_at) }}</td>
+                                        <td class="px-3 py-2">
+                                            <span v-if="sale.credit_due_date" :style="new Date(String(sale.credit_due_date).slice(0,10)+'T00:00:00') < new Date() ? 'color:#DC2626;font-weight:700;' : 'color:#D97706;font-weight:600;'">
+                                                {{ fmtDate(sale.credit_due_date) }}
+                                            </span>
+                                            <span v-else style="color:#CBD5E1;">—</span>
+                                        </td>
+                                        <td class="px-3 py-2 text-right" style="color:#334155;">{{ fmt(sale.total) }}</td>
+                                        <td class="px-3 py-2 text-right" style="color:#16A34A;">{{ fmt(sale.paid) }}</td>
+                                        <td class="px-3 py-2 text-right font-bold" style="color:#DC2626;">{{ fmt(sale.balance) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- Payment history -->
+                        <div>
+                            <h3 class="text-sm font-bold mb-2" style="color:#0F172A;">ගෙවූ ඉතිහාසය</h3>
+                            <div v-if="!reportCustomer.credit_payments?.length" class="text-xs text-slate-400 py-2">ගෙවීම් ඉතිහාසය නොමැත</div>
+                            <table v-else class="w-full text-xs rounded-xl overflow-hidden" style="border:1px solid #E2E8F0;">
+                                <thead>
+                                    <tr style="background:#F8FAFC;">
+                                        <th class="px-3 py-2 text-left" style="color:#64748B;">#</th>
+                                        <th class="px-3 py-2 text-left" style="color:#64748B;">දිනය</th>
+                                        <th class="px-3 py-2 text-right" style="color:#16A34A;">ගෙවූ</th>
+                                        <th class="px-3 py-2 text-left" style="color:#64748B;">සටහන</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(pmt, idx) in reportCustomer.credit_payments" :key="pmt.id" style="border-top:1px solid #F1F5F9;">
+                                        <td class="px-3 py-2 text-slate-400">{{ idx + 1 }}</td>
+                                        <td class="px-3 py-2" style="color:#64748B;">{{ fmtDateTime(pmt.created_at) }}</td>
+                                        <td class="px-3 py-2 text-right font-bold" style="color:#16A34A;">{{ fmt(pmt.amount) }}</td>
+                                        <td class="px-3 py-2" style="color:#94A3B8;">{{ pmt.note || '—' }}</td>
+                                    </tr>
+                                </tbody>
+                                <tfoot>
+                                    <tr style="background:#F0FDF4; border-top:2px solid #BBF7D0;">
+                                        <td colspan="2" class="px-3 py-2 font-bold text-xs" style="color:#166534;">එකතුව</td>
+                                        <td class="px-3 py-2 text-right font-bold" style="color:#16A34A;">{{ fmt(totalPaid(reportCustomer)) }}</td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                    <!-- Footer -->
+                    <div class="px-6 py-4 flex gap-3" style="border-top:1px solid #E2E8F0;">
+                        <button type="button" @click="openSettle(reportCustomer)"
+                            class="flex-1 text-white font-semibold py-2.5 rounded-xl text-sm"
+                            style="background-color:#16A34A;">
+                            ගෙවන්න
+                        </button>
+                        <button type="button" @click="reportCustomer = null"
+                            class="flex-1 font-semibold py-2.5 rounded-xl text-sm"
+                            style="background:#F1F5F9; color:#64748B;">
+                            වසන්න
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+
+        <!-- ── Settle Modal ───────────────────────────────────────────────────── -->
+        <Teleport to="body">
+            <div v-if="settleModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+                <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
+                    <h2 class="text-lg font-bold" style="color:#0F172A;">ණය ගෙවීම</h2>
+                    <div class="rounded-xl px-4 py-3 space-y-1" style="background:#FEF2F2; border:1px solid #FECACA;">
+                        <p class="text-sm font-semibold" style="color:#0F172A;">{{ settleCustomer?.name }}</p>
+                        <p class="text-xs" style="color:#64748B;">ශේෂය: <span class="font-bold" style="color:#DC2626;">{{ fmt(settleCustomer?.credit_balance) }}</span></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1.5" style="color:#334155;">මුදල (Rs.)</label>
+                        <input v-model="settleForm.amount" type="number" min="0.01" :max="settleCustomer?.credit_balance" step="0.01"
+                            placeholder="0.00" autofocus @keydown.enter="submitSettle"
+                            class="w-full border-2 border-green-300 rounded-xl px-4 py-3 text-2xl font-bold text-green-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
+                        <div class="flex gap-1.5 mt-2 flex-wrap">
+                            <button v-for="amt in quickAmounts" :key="amt" type="button"
+                                @click="settleForm.amount = Math.min(amt, settleCustomer?.credit_balance)"
+                                class="px-2.5 py-1 rounded-lg border text-xs font-medium" style="border-color:#E2E8F0; color:#64748B;">{{ amt }}</button>
+                            <button type="button" @click="settleForm.amount = settleCustomer?.credit_balance"
+                                class="px-2.5 py-1 rounded-lg text-xs font-semibold" style="background:#FEF2F2; border:1px solid #FECACA; color:#DC2626;">සම්පූර්ණ</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1.5" style="color:#334155;">සටහන (අනිවාර්ය නැත)</label>
+                        <input v-model="settleForm.note" type="text" placeholder="ගෙවීම් සටහන…"
+                            class="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" style="border-color:#D1FAE5;" />
+                    </div>
+                    <div class="flex gap-3">
+                        <button type="button" @click="submitSettle" :disabled="settleForm.processing || !settleForm.amount"
+                            class="flex-1 text-white font-semibold py-3 rounded-xl disabled:opacity-50" style="background-color:#16A34A;">
+                            {{ settleForm.processing ? 'සුරකිනවා…' : 'ගෙවීම තහවුරු කරන්න' }}
+                        </button>
+                        <button type="button" @click="settleModal = false"
+                            class="flex-1 font-semibold py-3 rounded-xl" style="background:#F1F5F9; color:#64748B;">
+                            ආපසු
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
 
     </AuthenticatedLayout>
 </template>
