@@ -602,8 +602,9 @@ function expiryLabel(days) {
                 </div>
             </div>
             <div class="divide-y" style="border-color:#DBEAFE;">
-                <div v-for="c in sortedCreditCustomers.slice(0, 8)" :key="c.id"
-                    class="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                <Link v-for="c in sortedCreditCustomers.slice(0, 8)" :key="c.id"
+                    :href="route('customers.show', c.id)"
+                    class="flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer"
                     :class="(c.next_due && nextDueDays(c.next_due) <= 3) || (c.credit_due && creditDueDays(c.credit_due) <= 3)
                         ? 'bg-red-50 hover:bg-red-100'
                         : 'hover:bg-blue-50'">
@@ -630,7 +631,7 @@ function expiryLabel(days) {
                         </template>
                     </div>
                     <p class="text-sm font-bold text-blue-700 flex-shrink-0">Rs. {{ Number(c.credit_balance).toLocaleString('en-LK', { minimumFractionDigits: 2 }) }}</p>
-                </div>
+                </Link>
             </div>
             <div v-if="creditCustomers.length > 8" class="px-4 py-2 text-xs text-center text-blue-500 border-t" style="border-color:#DBEAFE;">
                 + {{ creditCustomers.length - 8 }} more —
