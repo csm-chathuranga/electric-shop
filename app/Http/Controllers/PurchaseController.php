@@ -203,10 +203,30 @@ class PurchaseController extends Controller
      */
     public function destroy(string $id)
     {
-        $purchase = Purchase::findOrFail($id);
-        $purchase->items()->delete();
-        $purchase->delete();
+        $purchase = Purchase::with('items.product')->findOrFail($id);
 
-        return redirect()->route('purchases.index')->with('success', 'Purchase ' . $purchase->grn_no . ' deleted successfully.');
+        DB::transaction(function () use ($purchase) {
+            foreach ($purchase->items as $item) {
+                $product = Product::lockForUpdate()->findOrFail($item->product_id);
+                $stockBefore = $product->stock_qty;
+                $product->decrement('stock_qty', $item->qty);
+
+                StockMovement::create([
+                    'product_id'   => $product->id,
+                    'user_id'      => Auth::id(),
+                    'type'         => 'out',
+                    'qty'          => $item->qty,
+                    'stock_before' => $stockBefore,
+                    'stock_after'  => $stockBefore - $item->qty,
+                    'reference'    => $purchase->grn_no,
+                    'note'         => 'Purchase deleted: ' . $purchase->grn_no,
+                ]);
+            }
+
+            $purchase->items()->delete();
+            $purchase->delete();
+        });
+
+        return redirect()->route('purchases.index')->with('success', 'Purchase ' . $purchase->grn_no . ' deleted and stock reversed.');
     }
 }
