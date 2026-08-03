@@ -212,17 +212,18 @@ class DashboardController extends Controller
             ->dueSoon(2)
             ->orderBy('due_date')
             ->get()
+            ->filter(fn ($p) => $p->plan !== null)
             ->map(fn ($p) => [
-                'id'           => $p->id,
-                'plan_id'      => $p->plan_id,
-                'plan_no'      => $p->plan->plan_no,
-                'customer'     => $p->plan->customer?->name,
+                'id'             => $p->id,
+                'plan_id'        => $p->plan_id,
+                'plan_no'        => $p->plan->plan_no,
+                'customer'       => $p->plan->customer?->name,
                 'installment_no' => $p->installment_no,
-                'due_date'     => $p->due_date->toDateString(),
-                'amount_due'   => $p->amount_due,
-                'amount_paid'  => $p->amount_paid,
-                'days_until'   => today()->diffInDays($p->due_date),
-            ]);
+                'due_date'       => $p->due_date->toDateString(),
+                'amount_due'     => $p->amount_due,
+                'amount_paid'    => $p->amount_paid,
+                'days_until'     => today()->diffInDays($p->due_date),
+            ])->values();
 
         // ── Credit book outstanding (not cached) ───────────────────
         $creditCustomers = \App\Models\Customer::where('credit_balance', '>', 0)
